@@ -1,0 +1,119 @@
+/* General Reset */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f4f4f4;
+    color: #333;
+    line-height: 1.6;
+}
+
+/* Container for the page */
+.container {
+    max-width: 600px;
+    margin: 50px auto;
+    padding: 20px;
+    background-color: #fff;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+h2 {
+    text-align: center;
+    margin-bottom: 20px;
+    color:#39335b; /* Green color for titles */
+}
+
+/* Input Fields */
+input[type="text"],
+input[type="email"] {
+    width: 100%;
+    padding: 14px;
+    margin: 10px 0; /* Consistent margin for all input fields */
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 16px;
+    box-sizing: border-box;
+}
+
+input[type="text"]:focus,
+input[type="email"]:focus {
+    outline: none;
+    border-color:#39335b;/* Green border on focus */
+}
+
+/* Buttons */
+button {
+    width: 100%;
+    padding: 14px;
+    background-color: #39335b;
+    color: white;
+    font-weight: bold;
+    border: none;
+    border-radius: 6px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+button:hover {
+    background-color:#39335b;
+}
+
+button:active {
+    background-color: #39335b;
+}
+
+/* Back to Dashboard Button */
+a {
+    display: inline-block;
+    width: 100%;
+    text-align: center;
+    padding: 10px;
+    margin-top: 20px;
+    background-color: #39335b;
+    color: white;
+    text-decoration: none;
+    border-radius: 6px;
+    font-size: 16px;
+    transition: background-color 0.3s ease;
+}
+
+a:hover {
+    background-color:#39335b;
+}
+
+a:active {
+    background-color: #39335b;
+}
+
+/* Form Styling */
+form {
+    padding: 20px;
+    background-color: #f9f9f9;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+form input,
+form button {
+    margin-bottom: 15px;
+}
+
+/* Mobile Responsiveness */
+@media (max-width: 768px) {
+    .container {
+        padding: 15px;
+    }
+
+    button,
+    input[type="text"],
+    input[type="email"],
+    a {
+        font-size: 14px;
+    }
+}

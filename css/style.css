@@ -1,0 +1,103 @@
+/* Basic reset */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f4f7fc;
+    color: #333;
+    margin: 0;
+    padding: 0;
+}
+
+/* Container */
+.container {
+    max-width: 1200px;
+    margin: 50px auto;
+    padding: 30px;
+    background-color: #fff;
+    border-radius: 10px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+}
+
+/* Header */
+h2 {
+    font-size: 28px;
+    color: #333;
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+p {
+    font-size: 18px;
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+h3 {
+    font-size: 24px;
+    color: #4d3f0a;
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+/* Role-specific Dashboard */
+.role-specific {
+    margin-top: 40px;
+}
+
+.dashboard-options {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+.option-card {
+    background-color: #39335b;
+    color: white;
+    padding: 20px 30px;
+    border-radius: 8px;
+    text-decoration: none;
+    font-size: 18px;
+    text-align: center;
+    width: 250px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    transition: all 0.3s ease;
+}
+
+.option-card:hover {
+    background-color: #39335b;
+    transform: translateY(-5px);
+}
+
+/* Logout Button */
+.logout-btn {
+    background-color: #80222b;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 5px;
+    text-decoration: none;
+    font-size: 18px;
+    margin-top: 20px;
+    transition: background-color 0.3s ease;
+}
+
+.logout-btn:hover {
+    background-color: #c82333;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .dashboard-options {
+        flex-direction: column;
+    }
+
+    .option-card {
+        width: 100%;
+        margin-bottom: 15px;
+    }
+}

@@ -1,0 +1,140 @@
+/* General body styling */
+body {
+    font-family: 'Roboto', Arial, sans-serif;
+    background-color: #eef2f7;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    color: #333;
+}
+
+/* Container for the content */
+.container {
+    background-color: #ffffff;
+    padding: 25px 30px;
+    border-radius: 12px;
+    box-shadow: 0px 6px 16px rgba(0, 0, 0, 0.15);
+    width: 100%;
+    max-width: 650px;
+    margin: 20px;
+}
+
+/* Title of the page */
+h2 {
+    font-size: 26px;
+    margin-bottom: 25px;
+    color: #2c3e50;
+    text-align: center;
+    border-bottom: 2px solid #39335b;
+    display: inline-block;
+    padding-bottom: 5px;
+}
+
+/* Form styling */
+form {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* Input field styling */
+input[type="month"],
+select,
+button {
+    padding: 12px;
+    font-size: 16px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+    transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+input[type="month"]:focus,
+select:focus {
+    border-color:#39335b;
+    box-shadow: 0 0 5px rgba(76, 175, 80, 0.5);
+    outline: none;
+}
+
+/* Placeholder for input fields */
+input::placeholder {
+    color: #aaa;
+    font-style: italic;
+}
+
+/* Button styling */
+button {
+    background-color:#39335b;
+    color: white;
+    font-size: 16px;
+    font-weight: bold;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.3s, transform 0.2s;
+    padding: 12px;
+}
+
+button:hover {
+    background-color:#39335b;
+    transform: scale(1.02);
+}
+
+button:active {
+    transform: scale(0.98);
+}
+
+/* Back Button Styling */
+.back-btn {
+    display: inline-block;
+    padding: 10px 20px;
+    background-color: #39335b;
+    color: white;
+    text-decoration: none;
+    border-radius: 5px;
+    font-size: 16px;
+    margin-top: 20px;
+}
+
+.back-btn:hover {
+    background-color: #39335b;
+}
+
+/* Table Container */
+.table-container {
+    margin-top: 40px;
+}
+
+/* Table styling */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+    background-color: #fafafa;
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+th, td {
+    padding: 14px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+}
+
+th {
+    background-color: #f2f2f2;
+    font-weight: bold;
+    color: #555;
+}
+
+tr:hover {
+    background-color: #f9f9f9;
+}
+
+tr:nth-child(even) {
+    background-color: #f7f7f7;
+}
