@@ -8,13 +8,16 @@ if (!isset($_SESSION['username']) || $_SESSION['role'] != 'Manager') {
     exit();
 }
 
-// Define default month filter (empty)
+// Define default month filter
 $month_filter = "";
 
 // Check if month filter is provided
 if (isset($_POST['month'])) {
     $month_filter = mysqli_real_escape_string($conn, $_POST['month']);
 }
+
+// Determine target month (fallback to current year-month if not searched)
+$target_month = !empty($month_filter) ? $month_filter : date('Y-m');
 
 // Fetch data for the report with the option to filter by month
 $query = "
@@ -28,92 +31,175 @@ SELECT
     COALESCE(sal.total_shifts, 0) AS total_shifts,
     COALESCE(sal.calculated_salary, 0) AS calculated_salary
 FROM users u
-LEFT JOIN salaries sal ON u.username = sal.employee_username
+LEFT JOIN salaries sal ON u.username = sal.employee_username AND sal.month = '$target_month'
 LEFT JOIN employee_profiles ep ON u.id = ep.user_id
 WHERE u.role = 'Employee'
-AND sal.month = '2025-01'  -- Adjust this condition to match the selected month in PHP
-ORDER BY u.username, sal.month DESC;
+ORDER BY u.username;
 ";
 
 $result = $conn->query($query);
 ?>
 
 <!DOCTYPE html>
-<html lang="en">
+<html class="light" lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Generate Report</title>
-    <link rel="stylesheet" href="css/report.css">
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>He&She Coffee | Salary Report</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
     <style>
-        .print-btn, .back-btn {
-            display: inline-block;
-            margin: 10px 0;
-            padding: 10px 20px;
-            background-color: #39335b;
-            color: white;
-            text-decoration: none;
-            border-radius: 5px;
-            cursor: pointer;
-            text-align: center;
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
         }
-
-        .print-btn:hover, .back-btn:hover {
-            background-color: #39335b;
+        body {
+            font-family: 'Inter', sans-serif;
         }
-
-        .container {
-            margin: 20px auto;
-            width: 90%;
-            max-width: 1200px;
+        @media print {
+            .no-print {
+                display: none !important;
+            }
         }
     </style>
+    <script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              colors: {
+                "secondary": "#545f73",
+                "surface-container": "#eceef0",
+                "surface-container-lowest": "#ffffff",
+                "on-background": "#191c1e",
+                "on-surface-variant": "#434655",
+                "on-primary": "#ffffff",
+                "surface": "#f7f9fb",
+                "primary": "#000000",
+                "background": "#f7f9fb",
+                "primary-container": "#000000",
+                "on-primary-container": "#ffffff",
+                "on-surface": "#191c1e",
+                "outline-variant": "#c3c6d7",
+                "outline": "#737686",
+                "surface-container-low": "#f2f4f6"
+              },
+              borderRadius: {
+                "DEFAULT": "0.125rem",
+                "lg": "0.25rem",
+                "xl": "0.5rem",
+                "full": "0.75rem"
+              }
+            }
+          }
+        }
+      </script>
 </head>
-<body>
-<div class="container">
-    <h2>Employee Salary Report</h2>
+<body class="bg-background text-on-surface min-h-screen flex flex-col justify-between">
+    <!-- TopNavBar -->
+    <header class="bg-surface-container-lowest w-full top-0 border-b border-outline-variant sticky z-50 no-print">
+        <div class="flex justify-between items-center h-16 px-6 max-w-[1440px] mx-auto">
+            <div class="flex items-center gap-6">
+                <div class="font-bold text-xl text-primary flex items-center gap-2">
+                    <img src="images/logo.png" alt="He&She Coffee Logo" class="h-8 w-auto object-contain">
+                    He&She Coffee
+                </div>
+                <nav class="hidden md:flex items-center gap-6 h-full mt-1">
+                    <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="user.php">Dashboard</a>
+                    <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="manage_schedule.php">Schedules</a>
+                    <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="manage_salaries.php">Payroll</a>
+                    <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="manage_employee_profile.php">Profiles</a>
+                </nav>
+            </div>
+            <div class="flex items-center gap-4">
+                <span class="text-sm text-secondary">Role: <strong class="text-on-surface">Manager</strong></span>
+                <a href="logout.php" class="text-xs border border-outline-variant px-3 py-1.5 hover:bg-surface-container-low transition-colors duration-200 rounded-xl">Logout</a>
+            </div>
+        </div>
+    </header>
 
-    <!-- Search form for month filter -->
-    <form action="generate_report.php" method="POST">
-        <label for="month">Select Month:</label>
-        <input type="month" name="month" id="month" required>
+    <!-- Main Content -->
+    <main class="max-w-[1200px] mx-auto px-6 py-8 flex-grow w-full space-y-6">
+        <section class="bg-white border border-outline-variant p-6 rounded-xl space-y-6">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-outline-variant pb-4 gap-4">
+                <div>
+                    <h2 class="font-bold text-2xl text-on-surface">Employee Salary Report</h2>
+                    <p class="text-xs text-secondary mt-1">Report Sheet for Month: <strong class="text-on-surface"><?php echo date('F Y', strtotime($target_month)); ?></strong></p>
+                </div>
 
-        <button type="submit">Search</button>
-    </form>
-    
-    <?php if (isset($result) && $result->num_rows > 0): ?>
-        <table border="1" cellpadding="5" cellspacing="0">
-            <thead>
-            <tr>
-                <th>Employee Name</th>
-                <th>Contact</th>
-                <th>Username</th>
-                <th>Bank Account Number</th>
-                <th>Email</th>
-                <th>Total Shifts</th>
-                <th>Calculated Salary (RM)</th>
-            </tr>
-            </thead>
-            <tbody>
-            <?php while ($row = $result->fetch_assoc()): ?>
-                <tr>
-                    <td><?php echo htmlspecialchars($row['employee_name']); ?></td>
-                    <td><?php echo htmlspecialchars($row['contact']); ?></td>
-                    <td><?php echo htmlspecialchars($row['employee_username']); ?></td>
-                    <td><?php echo htmlspecialchars($row['bank_account_number']); ?></td>
-                    <td><?php echo htmlspecialchars($row['employee_email']); ?></td>
-                    <td><?php echo $row['total_shifts']; ?></td>
-                    <td><?php echo number_format($row['calculated_salary'], 2); ?></td>
-                </tr>
-            <?php endwhile; ?>
-            </tbody>
-        </table>
-        <button class="print-btn" onclick="window.print()">Print Report</button>
-    <?php else: ?>
-        <p>No data available for the report.</p>
-    <?php endif; ?>
-    <a href="user.php" class="back-btn">Back to Dashboard</a>
-</div>
+                <!-- Search form for month filter -->
+                <form action="generate_report.php" method="POST" class="flex items-center gap-2 no-print">
+                    <label for="month" class="text-xs font-semibold text-secondary uppercase tracking-wider">Select Month:</label>
+                    <div class="relative">
+                        <input type="month" name="month" id="month" value="<?php echo htmlspecialchars($target_month); ?>" required class="h-10 px-3 border border-outline-variant bg-surface-container-lowest text-sm text-on-surface focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all rounded-xl">
+                    </div>
+                    <button type="submit" class="h-10 px-4 bg-primary text-white font-semibold text-sm hover:bg-neutral-800 transition-colors rounded-xl">
+                        Search
+                    </button>
+                </form>
+            </div>
+
+            <?php if (isset($result) && $result->num_rows > 0): ?>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="border-b border-outline-variant text-xs font-semibold text-secondary uppercase tracking-wider bg-surface-container-low">
+                                <th class="py-3 px-4">Employee Name</th>
+                                <th class="py-3 px-4">Username</th>
+                                <th class="py-3 px-4">Contact</th>
+                                <th class="py-3 px-4">Bank Account</th>
+                                <th class="py-3 px-4">Email</th>
+                                <th class="py-3 px-4 text-center">Total Shifts</th>
+                                <th class="py-3 px-4 text-right">Calculated Salary (RM)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php while ($row = $result->fetch_assoc()): ?>
+                                <tr class="border-b border-outline-variant hover:bg-surface-container-low transition-colors text-sm">
+                                    <td class="py-3 px-4 font-medium"><?php echo htmlspecialchars($row['employee_name']); ?></td>
+                                    <td class="py-3 px-4 font-semibold"><?php echo htmlspecialchars($row['employee_username']); ?></td>
+                                    <td class="py-3 px-4"><?php echo htmlspecialchars($row['contact'] ? $row['contact'] : 'N/A'); ?></td>
+                                    <td class="py-3 px-4 font-mono"><?php echo htmlspecialchars($row['bank_account_number'] ? $row['bank_account_number'] : 'N/A'); ?></td>
+                                    <td class="py-3 px-4"><?php echo htmlspecialchars($row['employee_email'] ? $row['employee_email'] : 'N/A'); ?></td>
+                                    <td class="py-3 px-4 text-center font-semibold"><?php echo $row['total_shifts']; ?></td>
+                                    <td class="py-3 px-4 text-right font-mono font-semibold">RM <?php echo number_format($row['calculated_salary'], 2); ?></td>
+                                </tr>
+                            <?php endwhile; ?>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="pt-6 border-t border-outline-variant flex gap-4 no-print">
+                    <button class="bg-primary text-white font-semibold h-11 px-6 hover:bg-neutral-800 transition-colors rounded-xl flex items-center gap-2" onclick="window.print()">
+                        <span class="material-symbols-outlined text-lg">print</span>
+                        Print Report
+                    </button>
+                    <a href="user.php" class="border border-outline-variant text-on-surface font-semibold h-11 px-6 hover:bg-surface-container-low transition-colors rounded-xl flex items-center justify-center">
+                        Back to Dashboard
+                    </a>
+                </div>
+            <?php else: ?>
+                <div class="border border-dashed border-outline-variant p-8 text-center text-sm text-secondary rounded-xl">
+                    No data available for the selected month.
+                </div>
+                <div class="no-print pt-4">
+                    <a href="user.php" class="border border-outline-variant text-on-surface font-semibold h-11 px-6 hover:bg-surface-container-low transition-colors rounded-xl inline-flex items-center justify-center">
+                        Back to Dashboard
+                    </a>
+                </div>
+            <?php endif; ?>
+        </section>
+    </main>
+
+    <!-- Footer Component -->
+    <footer class="w-full bg-surface-container border-t border-outline-variant py-4 px-6 mt-12 no-print">
+        <div class="flex justify-between items-center max-w-[1440px] mx-auto w-full">
+            <span class="text-xs text-secondary">© 2026 He&amp;She Coffee. All rights reserved.</span>
+        </div>
+    </footer>
 </body>
 </html>
+
+
 

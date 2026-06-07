@@ -15,7 +15,9 @@ if (isset($_POST['login'])) {
             header('Location: user.php');
             exit();
         } else {
-            echo "Invalid password. <a href='login.php'>Try again</a>";
+            $_SESSION['error'] = "Invalid password.";
+            header('Location: login.php');
+            exit();
         }
     } else {
         // Employee login with hashed password check
@@ -34,10 +36,14 @@ if (isset($_POST['login'])) {
                 header('Location: user.php');
                 exit();
             } else {
-                echo "Invalid password. <a href='login.php'>Try again</a>";
+                $_SESSION['error'] = "Invalid password.";
+                header('Location: login.php');
+                exit();
             }
         } else {
-            echo "User not found. <a href='register.php'>Register here</a>";
+            $_SESSION['error'] = "Username not found.";
+            header('Location: login.php');
+            exit();
         }
 
         $stmt->close();

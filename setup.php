@@ -2,11 +2,37 @@
 session_start();
 include 'db_connect.php';
 
+// Check if any manager exists; if so, redirect to login
 $check_managers = $conn->query("SELECT COUNT(*) AS total FROM users WHERE role = 'Manager'");
 $manager_count = $check_managers ? $check_managers->fetch_assoc()['total'] : 0;
-if ($manager_count == 0) {
-    header('Location: setup.php');
+if ($manager_count > 0) {
+    header('Location: login.php');
     exit();
+}
+
+$error_message = '';
+$success_message = '';
+
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $username = $_POST['username'];
+    $password = password_hash($_POST['password'], PASSWORD_DEFAULT);
+    $full_name = $_POST['full_name'];
+
+    // Insert initial manager
+    $sql = "INSERT INTO users (username, password, role, full_name) VALUES (?, ?, 'Manager', ?)";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("sss", $username, $password, $full_name);
+
+    if ($stmt->execute()) {
+        $success_message = "Initial Manager account created successfully! Redirecting to login...";
+        echo "<script>
+            setTimeout(function() {
+                window.location.href = 'login.php';
+            }, 2000);
+        </script>";
+    } else {
+        $error_message = "Error creating account: " . $conn->error;
+    }
 }
 ?>
 
@@ -15,7 +41,7 @@ if ($manager_count == 0) {
 <head>
     <meta charset="utf-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-    <title>He&She Coffee | login</title>
+    <title>He&She Coffee | First-time Setup</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
@@ -69,39 +95,47 @@ if ($manager_count == 0) {
                 <div class="flex justify-center mb-4">
                     <img src="images/logo.png" alt="He&She Coffee Logo" class="h-16 w-auto object-contain">
                 </div>
-                <h1 class="font-bold text-2xl text-on-surface">He&amp;She Coffee</h1>
-                <p class="text-sm text-secondary">Employee Management System</p>
+                <h1 class="font-bold text-2xl text-on-surface">System Setup</h1>
+                <p class="text-sm text-secondary">Create the initial Manager account to configure your system.</p>
             </div>
-            <!-- Login Form -->
-            <?php if (isset($_SESSION['error'])): ?>
+
+            <?php if (!empty($error_message)): ?>
                 <div class="bg-red-50 border border-red-200 p-4 text-red-800 text-sm rounded-xl">
-                    <?php 
-                    echo htmlspecialchars($_SESSION['error']); 
-                    unset($_SESSION['error']);
-                    ?>
+                    <?php echo htmlspecialchars($error_message); ?>
                 </div>
             <?php endif; ?>
-            <form action="user_login_process.php" method="POST" class="space-y-4">
+
+            <?php if (!empty($success_message)): ?>
+                <div class="bg-green-50 border border-green-200 p-4 text-green-800 text-sm rounded-xl">
+                    <?php echo htmlspecialchars($success_message); ?>
+                </div>
+            <?php endif; ?>
+
+            <!-- Setup Form -->
+            <form action="" method="POST" class="space-y-4">
+                <!-- Full Name Input -->
+                <div class="space-y-1">
+                    <label class="text-xs font-semibold text-on-surface-variant block uppercase tracking-wider" for="full_name">FULL NAME</label>
+                    <input class="w-full h-11 px-4 border border-outline-variant bg-surface-container-lowest text-sm text-on-surface focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all duration-200 rounded-xl" id="full_name" name="full_name" placeholder="Enter your full name" type="text" required/>
+                </div>
+
                 <!-- Username Input -->
                 <div class="space-y-1">
                     <label class="text-xs font-semibold text-on-surface-variant block uppercase tracking-wider" for="username">USERNAME</label>
-                    <input class="w-full h-11 px-4 border border-outline-variant bg-surface-container-lowest text-sm text-on-surface focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all duration-200 rounded" id="username" name="username" placeholder="Enter your username" type="text" required/>
+                    <input class="w-full h-11 px-4 border border-outline-variant bg-surface-container-lowest text-sm text-on-surface focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all duration-200 rounded-xl" id="username" name="username" placeholder="Choose a username" type="text" required/>
                 </div>
+
                 <!-- Password Input -->
                 <div class="space-y-1">
                     <label class="text-xs font-semibold text-on-surface-variant block uppercase tracking-wider" for="password">PASSWORD</label>
-                    <input class="w-full h-11 px-4 border border-outline-variant bg-surface-container-lowest text-sm text-on-surface focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all duration-200 rounded" id="password" name="password" placeholder="••••••••" type="password" required/>
+                    <input class="w-full h-11 px-4 border border-outline-variant bg-surface-container-lowest text-sm text-on-surface focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all duration-200 rounded-xl" id="password" name="password" placeholder="••••••••" type="password" required/>
                 </div>
                 
                 <!-- Primary Action -->
-                <button class="w-full h-12 bg-primary text-white font-semibold flex items-center justify-center hover:bg-neutral-800 transition-colors duration-200 rounded" type="submit" name="login">
-                    Sign In
+                <button class="w-full h-12 bg-primary text-white font-semibold flex items-center justify-center hover:bg-neutral-800 transition-colors duration-200 rounded-xl" type="submit">
+                    Initialize System
                 </button>
             </form>
-            <!-- Secondary Context -->
-            <div class="pt-4 border-t border-outline-variant flex flex-col space-y-2 text-center">
-                <p class="text-xs text-secondary">Please contact your manager if you do not have an account.</p>
-            </div>
         </div>
     </main>
     <!-- Global Footer -->
@@ -117,8 +151,4 @@ if ($manager_count == 0) {
     </footer>
 </body>
 </html>
-
-
-
-
 

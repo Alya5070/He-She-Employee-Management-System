@@ -29,3 +29,4 @@ if (isset($_GET['id'])) {
     echo "Schedule ID is missing.<br><a href='manage_schedule.php'>Back to Manage Schedules</a>";
 }
 ?>
+
