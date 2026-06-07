@@ -1,5 +1,5 @@
 <?php
-session_start();
+include 'session_init.php';
 if (!isset($_SESSION['username']) || $_SESSION['role'] != 'Employee') {
     header('Location: login.php');
     exit();
@@ -139,4 +139,5 @@ $profile = $result->fetch_assoc();
     </footer>
 </body>
 </html>
+
 

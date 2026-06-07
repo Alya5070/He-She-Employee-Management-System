@@ -1,5 +1,5 @@
 <?php
-session_start();
+include 'session_init.php';
 if (!isset($_SESSION['username']) || $_SESSION['role'] != 'Manager') {
     header('Location: login.php');
     exit();
@@ -138,4 +138,5 @@ $result = $conn->query($sql);
     </footer>
 </body>
 </html>
+
 

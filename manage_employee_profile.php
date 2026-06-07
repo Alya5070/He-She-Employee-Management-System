@@ -1,5 +1,5 @@
 <?php
-session_start();
+include 'session_init.php';
 include 'db_connect.php';
 
 // Check if the user is logged in and is a manager
@@ -16,13 +16,22 @@ if ($_SESSION['role'] == 'Manager') {
     $result = $conn->query($sql);
 } else {
     // Fetch only the current employee's profile (if employee)
-    $sql = "SELECT * FROM employee_profiles WHERE user_id = (SELECT id FROM users WHERE username = '$username')";
-    $result = $conn->query($sql);
+    $sql = "SELECT * FROM employee_profiles WHERE user_id = (SELECT id FROM users WHERE username = ?)";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("s", $username);
+    $stmt->execute();
+    $result = $stmt->get_result();
     $profile = $result->fetch_assoc();
+    $stmt->close();
 }
 
 // Handle profile update for both manager and employee
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    // CSRF Verification
+    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        die("CSRF token validation failed.");
+    }
+
     $full_name = $_POST['full_name'];
     $contact = $_POST['contact'];
     $bank_account_number = $_POST['bank_account_number'];
@@ -30,24 +39,24 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
     if ($_SESSION['role'] == 'Manager') {
         // If manager, allow editing any employee profile
-        $employee_id = $_POST['employee_id']; // Employee ID to update
-        $update_sql = "UPDATE employee_profiles SET full_name = '$full_name', contact = '$contact', 
-                       bank_account_number = '$bank_account_number', email = '$email' 
-                       WHERE id = $employee_id";
+        $employee_id = intval($_POST['employee_id']); // Employee ID to update
+        $stmt = $conn->prepare("UPDATE employee_profiles SET full_name = ?, contact = ?, bank_account_number = ?, email = ? WHERE id = ?");
+        $stmt->bind_param("ssssi", $full_name, $contact, $bank_account_number, $email, $employee_id);
     } else {
         // If employee, only update their own profile
-        $update_sql = "UPDATE employee_profiles SET full_name = '$full_name', contact = '$contact', 
-                       bank_account_number = '$bank_account_number', email = '$email' 
-                       WHERE user_id = (SELECT id FROM users WHERE username = '$username')";
+        $stmt = $conn->prepare("UPDATE employee_profiles SET full_name = ?, contact = ?, bank_account_number = ?, email = ? WHERE user_id = (SELECT id FROM users WHERE username = ?)");
+        $stmt->bind_param("sssss", $full_name, $contact, $bank_account_number, $email, $username);
     }
 
-    if ($conn->query($update_sql) === TRUE) {
+    if ($stmt->execute()) {
+        $stmt->close();
         echo "Profile updated successfully!";
         // Redirect after update to avoid re-submitting the form
         header('Location: manage_employee_profile.php');
         exit();
     } else {
-        echo "Error updating profile: " . $conn->error;
+        echo "Error updating profile: " . $stmt->error;
+        $stmt->close();
     }
 }
 
@@ -188,15 +197,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 if (isset($_GET['edit'])) {
                     // If manager is editing an employee's profile, fetch the selected employee's profile
                     $employee_id = intval($_GET['edit']);
-                    $sql = "SELECT * FROM employee_profiles WHERE id = $employee_id";
-                    $result = $conn->query($sql);
+                    $stmt = $conn->prepare("SELECT * FROM employee_profiles WHERE id = ?");
+                    $stmt->bind_param("i", $employee_id);
+                    $stmt->execute();
+                    $result = $stmt->get_result();
                     $profile = $result ? $result->fetch_assoc() : null;
+                    $stmt->close();
                 }
                 ?>
                 
                 <div class="max-w-[600px] mx-auto border border-outline-variant p-6 rounded-xl bg-surface-container-low space-y-4">
                     <h3 class="font-bold text-lg text-on-surface"><?php echo isset($profile) ? 'Edit Profile Details' : 'Create Profile Details'; ?></h3>
                     <form method="POST" class="space-y-4">
+                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                         <input type="hidden" name="employee_id" value="<?php echo isset($profile['id']) ? $profile['id'] : ''; ?>">
                         
                         <div class="space-y-1">
@@ -242,4 +255,5 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     </footer>
 </body>
 </html>
+
 

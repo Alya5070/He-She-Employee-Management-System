@@ -1,5 +1,5 @@
 <?php
-session_start();
+include 'session_init.php';
 include 'db_connect.php';
 
 // Check if the user is logged in and is a manager
@@ -11,6 +11,11 @@ if (!isset($_SESSION['username']) || $_SESSION['role'] != 'Manager') {
 $message = "";
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF Verification
+    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        die("CSRF token validation failed.");
+    }
+
     $username = $_POST['username'];
     $month = $_POST['month'];
 
@@ -40,8 +45,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($stmt->execute()) {
         $message = "Salary calculated for $username in $month: RM$calculated_salary (Total Shifts: $total_shifts)";
     } else {
-        $message = "Error: " . $conn->error;
+        $message = "Error: " . $stmt->error;
     }
+    $stmt->close();
 }
 
 ?>
@@ -131,6 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php endif; ?>
 
             <form method="POST" class="space-y-4">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                 <div class="space-y-1">
                     <label for="username" class="block text-xs font-semibold text-secondary uppercase tracking-wider">Select Employee</label>
                     <div class="relative">
@@ -175,6 +182,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </footer>
 </body>
 </html>
+
 
 
 

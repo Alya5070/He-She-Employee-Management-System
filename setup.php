@@ -1,5 +1,5 @@
 <?php
-session_start();
+include 'session_init.php';
 include 'db_connect.php';
 
 // Check if any manager exists; if so, redirect to login
@@ -151,4 +151,5 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     </footer>
 </body>
 </html>
+
 

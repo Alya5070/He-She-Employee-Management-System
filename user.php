@@ -1,5 +1,5 @@
 <?php
-session_start();
+include 'session_init.php';
 
 // Check if the user is logged in
 if (!isset($_SESSION['username'])) {
@@ -27,25 +27,41 @@ if ($role == 'Manager') {
 
     // 2. Total Schedules/Shifts this month
     $current_month = date('Y-m');
-    $shift_res = $conn->query("SELECT COUNT(*) AS total FROM schedules WHERE DATE_FORMAT(date, '%Y-%m') = '$current_month'");
+    $stmt1 = $conn->prepare("SELECT COUNT(*) AS total FROM schedules WHERE DATE_FORMAT(date, '%Y-%m') = ?");
+    $stmt1->bind_param("s", $current_month);
+    $stmt1->execute();
+    $shift_res = $stmt1->get_result();
     if ($shift_res) {
         $row = $shift_res->fetch_assoc();
         $total_shifts = $row['total'];
     }
+    $stmt1->close();
 
     // 3. Total Payroll calculated for this month
-    $payroll_res = $conn->query("SELECT SUM(calculated_salary) AS total FROM salaries WHERE month = '$current_month'");
+    $stmt2 = $conn->prepare("SELECT SUM(calculated_salary) AS total FROM salaries WHERE month = ?");
+    $stmt2->bind_param("s", $current_month);
+    $stmt2->execute();
+    $payroll_res = $stmt2->get_result();
     if ($payroll_res) {
         $row = $payroll_res->fetch_assoc();
         $total_payroll = $row['total'] ? $row['total'] : 0;
     }
+    $stmt2->close();
 } else {
     // Fetch employee profiles hours and shifts count
-    $profile_res = $conn->query("SELECT * FROM employee_profiles WHERE user_id = (SELECT id FROM users WHERE username = '$username')");
+    $stmt3 = $conn->prepare("SELECT * FROM employee_profiles WHERE user_id = (SELECT id FROM users WHERE username = ?)");
+    $stmt3->bind_param("s", $username);
+    $stmt3->execute();
+    $profile_res = $stmt3->get_result();
     $profile = $profile_res ? $profile_res->fetch_assoc() : null;
+    $stmt3->close();
 
-    $emp_shift_res = $conn->query("SELECT COUNT(*) AS total FROM schedules WHERE employee_username = '$username'");
+    $stmt4 = $conn->prepare("SELECT COUNT(*) AS total FROM schedules WHERE employee_username = ?");
+    $stmt4->bind_param("s", $username);
+    $stmt4->execute();
+    $emp_shift_res = $stmt4->get_result();
     $emp_total_shifts = $emp_shift_res ? $emp_shift_res->fetch_assoc()['total'] : 0;
+    $stmt4->close();
 }
 ?>
 
@@ -315,6 +331,7 @@ if ($role == 'Manager') {
     </footer>
 </body>
 </html>
+
 
 
 

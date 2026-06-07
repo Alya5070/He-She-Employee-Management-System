@@ -1,5 +1,5 @@
 <?php
-session_start();
+include 'session_init.php';
 include 'db_connect.php';
 
 // Check if the user is logged in
@@ -15,6 +15,12 @@ $month = isset($_GET['month']) ? $_GET['month'] : date('Y-m');
 
 // Handle AJAX request to insert schedule
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['ajax_action']) && $_POST['ajax_action'] == 'insert_schedule') {
+    // CSRF Verification
+    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        echo 'Error: CSRF token validation failed.';
+        exit();
+    }
+
     $date = $_POST['date'];
     $shift_time = $_POST['shift_time'];
 
@@ -26,8 +32,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['ajax_action']) && $_PO
     if ($stmt->execute()) {
         echo 'success';
     } else {
-        echo 'Error: ' . $conn->error;
+        echo 'Error: ' . $stmt->error;
     }
+    $stmt->close();
     exit(); // End the script to prevent HTML output
 }
 
@@ -200,6 +207,7 @@ $result = $stmt->get_result();
             <div class="border border-outline-variant p-6 rounded-xl bg-surface-container-low space-y-4">
                 <h3 class="font-bold text-lg text-on-surface">Claim a New Shift</h3>
                 <form id="schedule-form" class="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                     <div class="space-y-1">
                         <label class="block text-xs font-semibold text-secondary uppercase tracking-wider" for="date">DATE</label>
                         <input type="date" name="date" id="date" required class="w-full bg-white border border-outline-variant px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all rounded-xl">
@@ -268,5 +276,6 @@ $result = $stmt->get_result();
     </script>
 </body>
 </html>
+
 
 

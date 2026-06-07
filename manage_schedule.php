@@ -1,5 +1,5 @@
 <?php
-session_start();
+include 'session_init.php';
 include 'db_connect.php';
 
 // Check if the user is logged in and is a manager
@@ -19,17 +19,23 @@ $sql = "SELECT username FROM users WHERE role = 'Employee'";
 $employees_result = $conn->query($sql);
 
 // Fetch schedules based on the selected employee (if any)
-$sql = "SELECT schedules.id, users.username, schedules.date, schedules.shift_time
-        FROM schedules
-        JOIN users ON schedules.employee_username = users.username";
-
 if ($employee_filter) {
-    $sql .= " WHERE users.username = '$employee_filter'";
+    $sql = "SELECT schedules.id, users.username, schedules.date, schedules.shift_time
+            FROM schedules
+            JOIN users ON schedules.employee_username = users.username
+            WHERE users.username = ?
+            ORDER BY schedules.date";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("s", $employee_filter);
+    $stmt->execute();
+    $result = $stmt->get_result();
+} else {
+    $sql = "SELECT schedules.id, users.username, schedules.date, schedules.shift_time
+            FROM schedules
+            JOIN users ON schedules.employee_username = users.username
+            ORDER BY schedules.date";
+    $result = $conn->query($sql);
 }
-
-$sql .= " ORDER BY schedules.date";
-
-$result = $conn->query($sql);
 ?>
 
 <!DOCTYPE html>
@@ -170,7 +176,7 @@ $result = $conn->query($sql);
                                         </td>
                                         <td class="py-3 px-4 text-right space-x-2">
                                             <a href="edit_schedule.php?id=<?php echo $row['id']; ?>" class="text-xs bg-primary text-white font-semibold px-2.5 py-1 hover:bg-neutral-800 transition-colors rounded-xl">Edit</a>
-                                            <a href="delete_schedule.php?id=<?php echo $row['id']; ?>" class="text-xs border border-red-200 text-red-600 font-semibold px-2.5 py-1 hover:bg-red-50 transition-colors rounded-xl" onclick="return confirm('Are you sure you want to delete this schedule?')">Delete</a>
+                                            <a href="delete_schedule.php?id=<?php echo $row['id']; ?>&csrf_token=<?php echo urlencode($_SESSION['csrf_token']); ?>" class="text-xs border border-red-200 text-red-600 font-semibold px-2.5 py-1 hover:bg-red-50 transition-colors rounded-xl" onclick="return confirm('Are you sure you want to delete this schedule?')">Delete</a>
                                         </td>
                                     </tr>
                                 <?php endwhile; ?>

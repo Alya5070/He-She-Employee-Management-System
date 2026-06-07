@@ -1,5 +1,5 @@
 <?php
-session_start();
+include 'session_init.php';
 include 'db_connect.php';
 
 // Check if the user is logged in and is a manager
@@ -9,25 +9,40 @@ if (!isset($_SESSION['username']) || $_SESSION['role'] != 'Manager') {
 }
 
 // Get the schedule ID from the URL
-$schedule_id = $_GET['id'];
+$schedule_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
 
 // Fetch the current schedule data
-$sql = "SELECT * FROM schedules WHERE id = '$schedule_id'";
-$result = $conn->query($sql);
+$stmt = $conn->prepare("SELECT * FROM schedules WHERE id = ?");
+$stmt->bind_param("i", $schedule_id);
+$stmt->execute();
+$result = $stmt->get_result();
 $schedule = $result->fetch_assoc();
+$stmt->close();
+
+if (!$schedule) {
+    die("Schedule not found.");
+}
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_schedule'])) {
+    // CSRF Verification
+    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        die("CSRF token validation failed.");
+    }
+
     // Get new data from the form
     $new_date = $_POST['date'];
     $new_shift_time = $_POST['shift_time'];
 
     // Update the schedule in the database (removed location field)
-    $update_sql = "UPDATE schedules SET date = '$new_date', shift_time = '$new_shift_time' WHERE id = '$schedule_id'";
-    if ($conn->query($update_sql) === TRUE) {
+    $stmt = $conn->prepare("UPDATE schedules SET date = ?, shift_time = ? WHERE id = ?");
+    $stmt->bind_param("ssi", $new_date, $new_shift_time, $schedule_id);
+    
+    if ($stmt->execute()) {
         echo "Schedule updated successfully!<br><a href='manage_schedule.php'>Back to Manage Schedules</a>";
     } else {
-        echo "Error: " . $conn->error;
+        echo "Error: " . $stmt->error;
     }
+    $stmt->close();
 }
 ?>
 
@@ -112,6 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_schedule'])) {
             <p class="text-sm text-secondary">Employee: <strong class="text-on-surface"><?php echo htmlspecialchars($schedule['employee_username']); ?></strong></p>
 
             <form action="edit_schedule.php?id=<?php echo $schedule['id']; ?>" method="POST" class="space-y-4">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                 <div class="space-y-1">
                     <label class="block text-xs font-semibold text-secondary uppercase tracking-wider" for="date">DATE</label>
                     <input class="w-full bg-white border border-outline-variant px-4 py-2.5 focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-sm rounded-xl" type="date" id="date" name="date" value="<?php echo $schedule['date']; ?>" required>
@@ -151,5 +167,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_schedule'])) {
     </footer>
 </body>
 </html>
+
 
 

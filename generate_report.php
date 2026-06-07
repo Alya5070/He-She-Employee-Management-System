@@ -1,5 +1,5 @@
 <?php
-session_start();
+include 'session_init.php';
 include 'db_connect.php';
 
 // Check if the user is logged in and is a manager
@@ -12,8 +12,14 @@ if (!isset($_SESSION['username']) || $_SESSION['role'] != 'Manager') {
 $month_filter = "";
 
 // Check if month filter is provided
-if (isset($_POST['month'])) {
-    $month_filter = mysqli_real_escape_string($conn, $_POST['month']);
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF Verification
+    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        die("CSRF token validation failed.");
+    }
+    if (isset($_POST['month'])) {
+        $month_filter = $_POST['month'];
+    }
 }
 
 // Determine target month (fallback to current year-month if not searched)
@@ -31,13 +37,16 @@ SELECT
     COALESCE(sal.total_shifts, 0) AS total_shifts,
     COALESCE(sal.calculated_salary, 0) AS calculated_salary
 FROM users u
-LEFT JOIN salaries sal ON u.username = sal.employee_username AND sal.month = '$target_month'
+LEFT JOIN salaries sal ON u.username = sal.employee_username AND sal.month = ?
 LEFT JOIN employee_profiles ep ON u.id = ep.user_id
 WHERE u.role = 'Employee'
 ORDER BY u.username;
 ";
 
-$result = $conn->query($query);
+$stmt = $conn->prepare($query);
+$stmt->bind_param("s", $target_month);
+$stmt->execute();
+$result = $stmt->get_result();
 ?>
 
 <!DOCTYPE html>
@@ -130,6 +139,7 @@ $result = $conn->query($query);
 
                 <!-- Search form for month filter -->
                 <form action="generate_report.php" method="POST" class="flex items-center gap-2 no-print">
+                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                     <label for="month" class="text-xs font-semibold text-secondary uppercase tracking-wider">Select Month:</label>
                     <div class="relative">
                         <input type="month" name="month" id="month" value="<?php echo htmlspecialchars($target_month); ?>" required class="h-10 px-3 border border-outline-variant bg-surface-container-lowest text-sm text-on-surface focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all rounded-xl">
@@ -200,6 +210,7 @@ $result = $conn->query($query);
     </footer>
 </body>
 </html>
+
 
 
 

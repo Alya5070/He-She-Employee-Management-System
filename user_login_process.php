@@ -1,5 +1,5 @@
 <?php
-session_start();
+include 'session_init.php';
 include 'db_connect.php';
 
 if (isset($_POST['login'])) {
@@ -10,8 +10,10 @@ if (isset($_POST['login'])) {
     if ($username === 'admin123') {
         // Manager login with predefined password
         if ($password == '123') {
+            session_regenerate_id(true);
             $_SESSION['username'] = 'admin123';
             $_SESSION['role'] = 'Manager'; // Manager role
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
             header('Location: user.php');
             exit();
         } else {
@@ -31,8 +33,10 @@ if (isset($_POST['login'])) {
             
             // Verify the hashed password for employees
             if (password_verify($password, $row['password'])) {
+                session_regenerate_id(true);
                 $_SESSION['username'] = $username;
                 $_SESSION['role'] = $row['role']; // Store the role (Manager or Employee)
+                $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
                 header('Location: user.php');
                 exit();
             } else {

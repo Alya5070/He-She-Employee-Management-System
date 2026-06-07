@@ -1,5 +1,5 @@
 <?php
-session_start();
+include 'session_init.php';
 if (!isset($_SESSION['username']) || $_SESSION['role'] != 'Manager') {
     header('Location: login.php');
     exit();
@@ -10,6 +10,11 @@ $error_message = '';
 $success_message = '';
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    // CSRF Verification
+    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        die("CSRF token validation failed.");
+    }
+
     $username = $_POST['username'];
     $password = password_hash($_POST['password'], PASSWORD_DEFAULT);
     $full_name = $_POST['full_name'];
@@ -133,6 +138,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             <?php endif; ?>
 
             <form method="POST" class="space-y-4">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                 <!-- Credentials Section -->
                 <div class="space-y-4 border-b border-outline-variant pb-4">
                     <h3 class="font-semibold text-sm text-secondary uppercase tracking-wider">Account Credentials</h3>
@@ -194,4 +200,5 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     </footer>
 </body>
 </html>
+
 

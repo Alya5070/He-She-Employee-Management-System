@@ -1,5 +1,5 @@
 <?php
-session_start();
+include 'session_init.php';
 include 'db_connect.php';
 
 // Check if the user is logged in
@@ -20,6 +20,11 @@ $profile = $result->fetch_assoc();
 
 // Process form submission
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    // CSRF Verification
+    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        die("CSRF token validation failed.");
+    }
+
     // Retrieve profile information from the form
     $full_name = $_POST['full_name'];
     $contact = $_POST['contact'];
@@ -29,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     if ($profile) {
         // Update existing profile
         $update_sql = "UPDATE employee_profiles 
-                       SET full_name = ?, contact = ?, bank_account = ?, email = ? 
+                       SET full_name = ?, contact = ?, bank_account_number = ?, email = ? 
                        WHERE user_id = (SELECT id FROM users WHERE username = ?)";
         $stmt = $conn->prepare($update_sql);
         $stmt->bind_param("sssss", $full_name, $contact, $bank_account_number, $email, $username);
@@ -43,8 +48,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
     if ($stmt->execute()) {
         echo "<script>alert('Profile saved successfully!');</script>";
+        $stmt->close();
     } else {
         echo "<script>alert('Error saving profile. Please try again.');</script>";
+        $stmt->close();
     }
 }
 ?>
@@ -130,6 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             </h2>
 
             <form method="POST" class="space-y-4">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                 <!-- Full Name -->
                 <div class="space-y-1">
                     <label class="block text-xs font-semibold text-secondary uppercase tracking-wider" for="full_name">FULL NAME</label>
@@ -175,4 +183,5 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     </footer>
 </body>
 </html>
+
 

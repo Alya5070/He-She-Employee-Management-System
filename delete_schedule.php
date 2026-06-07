@@ -1,5 +1,5 @@
 <?php
-session_start();
+include 'session_init.php';
 include 'db_connect.php';
 
 // Check if the user is logged in and is a manager
@@ -10,6 +10,10 @@ if (!isset($_SESSION['username']) || $_SESSION['role'] != 'Manager') {
 
 // Get the schedule ID from the URL
 if (isset($_GET['id'])) {
+    // CSRF Verification
+    if (!isset($_GET['csrf_token']) || $_GET['csrf_token'] !== $_SESSION['csrf_token']) {
+        die("CSRF token validation failed.");
+    }
     $schedule_id = $_GET['id'];
 
     // Prepare and bind
@@ -29,4 +33,5 @@ if (isset($_GET['id'])) {
     echo "Schedule ID is missing.<br><a href='manage_schedule.php'>Back to Manage Schedules</a>";
 }
 ?>
+
 
