@@ -1,6 +1,6 @@
 <?php
 include 'session_init.php';
-include 'db_connect.php';
+include 'include/db_connect.php';
 
 $check_managers = $conn->query("SELECT COUNT(*) AS total FROM users WHERE role = 'Manager'");
 $manager_count = $check_managers ? $check_managers->fetch_assoc()['total'] : 0;
