@@ -27,15 +27,22 @@ if ($role == 'Manager') {
 
     // 2. Total Schedules/Shifts this month
     $current_month = date('Y-m');
-    $stmt1 = $conn->prepare("SELECT COUNT(*) AS total FROM schedules WHERE DATE_FORMAT(date, '%Y-%m') = ?");
+    $stmt1 = $conn->prepare("
+    SELECT COUNT(*) AS total 
+    FROM schedules 
+    WHERE DATE_FORMAT(shift_date, '%Y-%m') = ?
+    ");
     $stmt1->bind_param("s", $current_month);
     $stmt1->execute();
     $shift_res = $stmt1->get_result();
+
     if ($shift_res) {
-        $row = $shift_res->fetch_assoc();
-        $total_shifts = $row['total'];
+    $row = $shift_res->fetch_assoc();
+    $total_shifts = $row['total'];
     }
-    $stmt1->close();
+
+$stmt1->close();
+
 
     // 3. Total Payroll calculated for this month
     $stmt2 = $conn->prepare("SELECT SUM(calculated_salary) AS total FROM salaries WHERE month = ?");
