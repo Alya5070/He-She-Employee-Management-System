@@ -23,16 +23,13 @@ CREATE TABLE IF NOT EXISTS `employee_profiles` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 3. Create schedules table
-CREATE TABLE IF NOT EXISTS schedules (
-    shift_id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    shift_date DATE NOT NULL,
-    shift_time VARCHAR(20) NOT NULL,
-    CONSTRAINT fk_schedule_user FOREIGN KEY (user_id) REFERENCES users(user_id)
-          ON DELETE CASCADE 
-          ON UPDATE CASCADE
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
+CREATE TABLE IF NOT EXISTS `schedules` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `employee_username` VARCHAR(50) NOT NULL,
+  `schedules_date` DATE NOT NULL,
+  `schedules_time` VARCHAR(20) NOT NULL,
+  FOREIGN KEY (`employee_username`) REFERENCES `users`(`username`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 4. Create salaries table
 CREATE TABLE IF NOT EXISTS `salaries` (

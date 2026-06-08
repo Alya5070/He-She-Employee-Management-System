@@ -1,12 +1,8 @@
 <?php
-/* ══════════════════════════════════════════════════
-   Start output buffer IMMEDIATELY — before anything
-   else runs, so header.php HTML can be discarded
-   cleanly on AJAX requests.
-══════════════════════════════════════════════════ */
+include 'db_connect.php';
 ob_start();
 
-include('../header.php'); // loads $conn; any HTML it echoes goes into the buffer
+ // loads $conn; any HTML it echoes goes into the buffer
 
 /* ── AJAX handler ── */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
