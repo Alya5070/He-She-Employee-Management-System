@@ -12,21 +12,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         ob_end_clean();
         header('Content-Type: application/json');
 
-        $empId  = isset($_POST['employee_id']) && $_POST['employee_id'] !== ''
-                  ? (int)$_POST['employee_id']
+        $employeeUsername = isset($_POST['employee_username']) && $_POST['employee_username'] !== ''
+                  ? trim($_POST['employee_username'])
                   : null;
 
-        $sql    = "SELECT s.shift_id, s.user_id, s.shift_date, s.shift_time, u.full_name
-                   FROM shifts s
-                   JOIN users u ON s.user_id = u.user_id
+        $sql    = "SELECT s.id AS shift_id, u.id AS user_id, u.username AS employee_username, u.full_name, s.schedules_date AS shift_date, s.schedules_time AS shift_time
+                   FROM schedules s
+                   JOIN users u ON s.employee_username = u.username
                    WHERE u.role = 'Employee'";
         $params = [];
         $types  = '';
 
-        if ($empId !== null) {
-            $sql   .= " AND s.user_id = ?";
-            $params[] = $empId;
-            $types .= 'i';
+        if ($employeeUsername !== null) {
+            $sql   .= " AND s.employee_username = ?";
+            $params[] = $employeeUsername;
+            $types .= 's';
         }
 
         $sql .= " ORDER BY s.shift_date ASC, u.full_name, s.shift_time";
@@ -70,7 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
 
         $stmt = mysqli_prepare($conn,
-            "UPDATE shifts SET shift_date = ?, shift_time = ? WHERE shift_id = ?");
+            "UPDATE schedules SET schedules_date = ?, schedules_time = ? WHERE id = ?");
         if ($stmt === false) {
             echo json_encode(['success' => false, 'message' => mysqli_error($conn)]);
             exit;
@@ -96,10 +96,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
 
         $stmt = mysqli_prepare($conn,
-            "SELECT s.shift_id, s.user_id, s.shift_date, s.shift_time, u.full_name
-             FROM shifts s
-             JOIN users u ON s.user_id = u.user_id
-             WHERE s.shift_id = ?");
+            "SELECT s.id AS shift_id, u.id AS user_id, u.username AS employee_username, u.full_name, s.schedules_date AS shift_date, s.schedules_time AS shift_time
+             FROM schedules s
+             JOIN users u ON s.employee_username = u.username
+             WHERE s.id = ?");
         mysqli_stmt_bind_param($stmt, 'i', $shiftId);
         mysqli_stmt_execute($stmt);
         $result = mysqli_stmt_get_result($stmt);
@@ -125,7 +125,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             exit;
         }
 
-        $stmt = mysqli_prepare($conn, "DELETE FROM shifts WHERE shift_id = ?");
+        $stmt = mysqli_prepare($conn, "DELETE FROM schedules WHERE id = ?");
         if ($stmt === false) {
             echo json_encode(['success' => false, 'message' => mysqli_error($conn)]);
             exit;
@@ -145,7 +145,7 @@ ob_end_flush();
 
 /* ── Employee list for the dropdown ── */
 $emp_result = mysqli_query($conn,
-    "SELECT user_id, full_name FROM users WHERE role = 'Employee' ORDER BY full_name"
+    "SELECT id, username, full_name FROM users WHERE role = 'Employee' ORDER BY full_name"
 );
 $employees = [];
 while ($row = mysqli_fetch_assoc($emp_result)) {
@@ -271,7 +271,7 @@ while ($row = mysqli_fetch_assoc($emp_result)) {
                         class="w-full h-10 px-4 border border-outline-variant bg-surface text-sm text-on-surface focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all duration-200 rounded">
                     <option value="">All Employees</option>
                     <?php foreach ($employees as $emp): ?>
-                        <option value="<?= (int)$emp['user_id'] ?>">
+                        <option value="<?= htmlspecialchars($emp['username']) ?>">
                             <?= htmlspecialchars($emp['full_name']) ?>
                         </option>
                     <?php endforeach; ?>
@@ -578,7 +578,7 @@ function postJSON(formData) {
 /* ── filter ── */
 function filterShifts() {
     const btn   = document.getElementById('filterBtn');
-    const empId = document.getElementById('employeeFilter').value;
+    const empUsername = document.getElementById('employeeFilter').value;
 
     btn.disabled  = true;
     btn.innerHTML = '<div class="spinner"></div> Loading…';
@@ -592,7 +592,7 @@ function filterShifts() {
 
     const fd = new FormData();
     fd.append('action', 'filter');
-    if (empId) fd.append('employee_id', empId);
+    if (empUsername) fd.append('employee_username', empUsername);
 
     postJSON(fd)
         .then(data => {

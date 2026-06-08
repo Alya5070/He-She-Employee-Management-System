@@ -1,5 +1,5 @@
 <?php
-include 'session_init.php';
+session_start();
 include 'db_connect.php';
 
 // Check if the user is logged in and is a manager
@@ -15,9 +15,9 @@ class WeeklyShiftAssigner {
         $this->conn = $conn;
     }
 
-    public function assignWeeklyShifts($user_id, $start_date, $shift_time) {
-        if (!is_numeric($user_id) || empty($shift_time)) {
-            return ['success' => false, 'message' => 'Invalid user ID or shift time'];
+    public function assignWeeklyShifts($employee_username, $start_date, $shift_time) {
+        if (empty($employee_username) || empty($shift_time)) {
+            return ['success' => false, 'message' => 'Invalid username or shift time'];
         }
 
         $week_dates      = $this->getWeekDates($start_date);
@@ -29,11 +29,12 @@ class WeeklyShiftAssigner {
 
         try {
             foreach ($week_dates as $date) {
-                if (!$this->shiftExists($user_id, $date)) {
+                if (!$this->shiftExists($employee_username, $date)) {
+                    // INSERT new shift
                     $stmt = mysqli_prepare($this->conn,
-                        "INSERT INTO shifts (user_id, shift_date, shift_time) VALUES (?, ?, ?)"
+                        "INSERT INTO schedules (employee_username, schedules_date, schedules_time) VALUES (?, ?, ?)"
                     );
-                    mysqli_stmt_bind_param($stmt, 'iss', $user_id, $date, $shift_time);
+                    mysqli_stmt_bind_param($stmt, 'sss', $employee_username, $date, $shift_time);
                     mysqli_stmt_execute($stmt);
                     $inserted_shifts[] = [
                         'shift_id'   => mysqli_insert_id($this->conn),
@@ -43,11 +44,11 @@ class WeeklyShiftAssigner {
                     mysqli_stmt_close($stmt);
                     $inserted_count++;
                 } else {
+                    // UPDATE existing shift
                     $stmt = mysqli_prepare($this->conn,
-                        "UPDATE shifts SET shift_time = ? WHERE user_id = ? AND shift_date = ?"
+                        "UPDATE schedules SET schedules_time = ? WHERE employee_username = ? AND schedules_date = ?"
                     );
-                    $uid = (int)$user_id;
-                    mysqli_stmt_bind_param($stmt, 'iss', $shift_time, $uid, $date);
+                    mysqli_stmt_bind_param($stmt, 'sss', $shift_time, $employee_username, $date);
                     if (!mysqli_stmt_execute($stmt)) {
                         throw new Exception("Update failed: " . mysqli_stmt_error($stmt));
                     }
@@ -74,17 +75,17 @@ class WeeklyShiftAssigner {
         }
     }
 
-    public function getUserWeeklyShifts($user_id, $start_date) {
+    public function getUserWeeklyShifts($employee_username, $start_date) {
         $week_dates = $this->getWeekDates($start_date);
         $placeholders = implode(',', array_fill(0, count($week_dates), '?'));
-        $types = 'i' . str_repeat('s', count($week_dates));
-        $params = array_merge([$user_id], $week_dates);
+        $types = 's' . str_repeat('s', count($week_dates));
+        $params = array_merge([$employee_username], $week_dates);
 
         $stmt = mysqli_prepare($this->conn,
-            "SELECT shift_id, user_id, shift_date, shift_time
-             FROM shifts
-             WHERE user_id = ? AND shift_date IN ($placeholders)
-             ORDER BY shift_date"
+            "SELECT id, employee_username, schedules_date, schedules_time
+             FROM schedules
+             WHERE employee_username = ? AND schedules_date IN ($placeholders)
+             ORDER BY schedules_date"
         );
         mysqli_stmt_bind_param($stmt, $types, ...$params);
         mysqli_stmt_execute($stmt);
@@ -98,14 +99,15 @@ class WeeklyShiftAssigner {
         return $rows;
     }
 
-    public function deleteUserWeeklyShifts($user_id, $start_date) {
+    public function deleteUserWeeklyShifts($employee_username, $start_date) {
         $week_dates   = $this->getWeekDates($start_date);
         $placeholders = implode(',', array_fill(0, count($week_dates), '?'));
-        $types  = 'i' . str_repeat('s', count($week_dates));
-        $params = array_merge([$user_id], $week_dates);
+        $types  = 's' . str_repeat('s', count($week_dates));
+        $params = array_merge([$employee_username], $week_dates);
 
+        // Fixed: Changed 'shifts' to 'schedules'
         $stmt = mysqli_prepare($this->conn,
-            "DELETE FROM shifts WHERE user_id = ? AND shift_date IN ($placeholders)"
+            "DELETE FROM schedules WHERE employee_username = ? AND schedules_date IN ($placeholders)"
         );
         mysqli_stmt_bind_param($stmt, $types, ...$params);
         $ok = mysqli_stmt_execute($stmt);
@@ -117,7 +119,7 @@ class WeeklyShiftAssigner {
 
     public function getAllEmployees() {
         $result = mysqli_query($this->conn,
-            "SELECT user_id, full_name FROM users WHERE role = 'Employee' ORDER BY full_name"
+            "SELECT id, username, full_name FROM users WHERE role = 'Employee' ORDER BY full_name"
         );
         $rows = [];
         while ($row = mysqli_fetch_assoc($result)) {
@@ -126,11 +128,12 @@ class WeeklyShiftAssigner {
         return $rows;
     }
 
-    private function shiftExists($user_id, $shift_date) {
+    private function shiftExists($employee_username, $schedules_date) {
+        // Fixed: Changed table 'shifts' to 'schedules' and column names
         $stmt = mysqli_prepare($this->conn,
-            "SELECT COUNT(*) AS cnt FROM shifts WHERE user_id = ? AND shift_date = ?"
+            "SELECT COUNT(*) AS cnt FROM schedules WHERE employee_username = ? AND schedules_date = ?"
         );
-        mysqli_stmt_bind_param($stmt, 'is', $user_id, $shift_date);
+        mysqli_stmt_bind_param($stmt, 'ss', $employee_username, $schedules_date);
         mysqli_stmt_execute($stmt);
         $result = mysqli_stmt_get_result($stmt);
         $row    = mysqli_fetch_assoc($result);
@@ -157,27 +160,27 @@ $shiftAssigner = new WeeklyShiftAssigner($conn);
 // Handle AJAX actions
 if ($_POST && isset($_POST['action'])) {
     if ($_POST['action'] === 'assign') {
-        $user_id    = (int)$_POST['user_id'];
-        $week_start = $_POST['week_start'];
-        $shift_time = $_POST['shift_time'];
-        echo json_encode($shiftAssigner->assignWeeklyShifts($user_id, $week_start, $shift_time));
+        $employee_username = $_POST['employee_username'];  // Changed from user_id
+        $week_start        = $_POST['week_start'];
+        $shift_time        = $_POST['shift_time'];
+        echo json_encode($shiftAssigner->assignWeeklyShifts($employee_username, $week_start, $shift_time));
         exit;
     }
     if ($_POST['action'] === 'view') {
-        $user_id    = (int)$_POST['user_id'];
-        $week_start = $_POST['week_start'];
-        $shifts = $shiftAssigner->getUserWeeklyShifts($user_id, $week_start);
+        $employee_username = $_POST['employee_username'];  // Changed from user_id
+        $week_start        = $_POST['week_start'];
+        $shifts = $shiftAssigner->getUserWeeklyShifts($employee_username, $week_start);
         echo json_encode([
             'success'    => true,
             'shifts'     => $shifts,
-            'shift_time' => !empty($shifts) ? $shifts[0]['shift_time'] : 'No shifts assigned'
+            'shift_time' => !empty($shifts) ? $shifts[0]['schedules_time'] : 'No shifts assigned'
         ]);
         exit;
     }
     if ($_POST['action'] === 'delete') {
-        $user_id    = (int)$_POST['user_id'];
-        $week_start = $_POST['week_start'];
-        echo json_encode($shiftAssigner->deleteUserWeeklyShifts($user_id, $week_start));
+        $employee_username = $_POST['employee_username'];  // Changed from user_id
+        $week_start        = $_POST['week_start'];
+        echo json_encode($shiftAssigner->deleteUserWeeklyShifts($employee_username, $week_start));
         exit;
     }
     if ($_POST['action'] === 'get_employees') {
@@ -295,16 +298,16 @@ $employees = $shiftAssigner->getAllEmployees();
                         $initials = substr($initials, 0, 2);
                     ?>
                     <label class="emp-option flex items-center gap-3 p-3 border border-outline-variant rounded cursor-pointer hover:bg-surface-container-low transition-colors" 
-                           data-id="<?= $emp['user_id'] ?>" 
+                           data-id="<?= htmlspecialchars($emp['username']) ?>" 
                            data-name="<?= htmlspecialchars($emp['full_name']) ?>" 
                            onclick="selectEmployee(this)">
-                        <input type="radio" name="user_id" value="<?= $emp['user_id'] ?>" class="hidden">
+                        <input type="radio" name="employee_username" value="<?= htmlspecialchars($emp['username']) ?>" class="hidden">
                         <div class="emp-avatar w-9 h-9 rounded-full bg-surface-container flex items-center justify-center text-xs font-semibold text-secondary flex-shrink-0 uppercase">
                             <?= $initials ?>
                         </div>
                         <div class="flex-grow">
                             <div class="text-sm font-semibold text-on-surface"><?= htmlspecialchars($emp['full_name']) ?></div>
-                            <div class="text-xs text-secondary">ID #<?= $emp['user_id'] ?></div>
+                            <div class="text-xs text-secondary">ID #<?= htmlspecialchars($emp['id']) ?></div>
                         </div>
                         <div class="emp-check w-5 h-5 rounded-full border border-outline-variant flex items-center justify-center flex-shrink-0">
                             <div class="emp-check-dot w-2 h-2 rounded-full bg-primary hidden"></div>
@@ -342,7 +345,7 @@ $employees = $shiftAssigner->getAllEmployees();
                     <input type="radio" name="shift_time" value="morning" class="hidden">
                     <span class="text-2xl">☀️</span>
                     <span class="font-semibold text-sm text-on-surface">Morning</span>
-                    <span class="text-xs text-secondary font-mono">06:00 – 14:00</span>
+                    <span class="text-xs text-secondary font-mono">08:00 – 13:00</span>
                     <div class="shift-tick hidden mt-1">
                         <span class="inline-flex items-center gap-1 text-xs font-semibold text-primary">
                             <span class="material-symbols-outlined text-sm">check_circle</span> Selected
@@ -354,7 +357,7 @@ $employees = $shiftAssigner->getAllEmployees();
                     <input type="radio" name="shift_time" value="evening" class="hidden">
                     <span class="text-2xl">🌤️</span>
                     <span class="font-semibold text-sm text-on-surface">Evening</span>
-                    <span class="text-xs text-secondary font-mono">14:00 – 22:00</span>
+                    <span class="text-xs text-secondary font-mono">13:00 – 18:00</span>
                     <div class="shift-tick hidden mt-1">
                         <span class="inline-flex items-center gap-1 text-xs font-semibold text-primary">
                             <span class="material-symbols-outlined text-sm">check_circle</span> Selected
@@ -366,7 +369,7 @@ $employees = $shiftAssigner->getAllEmployees();
                     <input type="radio" name="shift_time" value="night" class="hidden">
                     <span class="text-2xl">🌙</span>
                     <span class="font-semibold text-sm text-on-surface">Night</span>
-                    <span class="text-xs text-secondary font-mono">22:00 – 06:00</span>
+                    <span class="text-xs text-secondary font-mono">18:00 – 23:00</span>
                     <div class="shift-tick hidden mt-1">
                         <span class="inline-flex items-center gap-1 text-xs font-semibold text-primary">
                             <span class="material-symbols-outlined text-sm">check_circle</span> Selected
@@ -476,7 +479,7 @@ function updateWeekPreview(val) {
 function getFormData(action) {
     const fd = new FormData();
     fd.append('action', action);
-    fd.append('user_id', selectedUserId || '');
+    fd.append('employee_username', selectedUserId || '');
     fd.append('week_start', selectedWeekStart || '');
     if (action === 'assign') fd.append('shift_time', selectedShift || '');
     return fd;

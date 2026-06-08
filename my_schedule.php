@@ -39,10 +39,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['ajax_action']) && $_PO
 }
 
 // Fetch all employee schedules for the selected month
-$sql = "SELECT schedules.id, schedules.date, schedules.shift_time
+$sql = "SELECT schedules.id, schedules.schedules_date, schedules.schedules_time
         FROM schedules
-        WHERE employee_username = ? AND DATE_FORMAT(schedules.date, '%Y-%m') = ?
-        ORDER BY schedules.date";
+        WHERE employee_username = ? AND DATE_FORMAT(schedules.schedules_date, '%Y-%m') = ?
+        ORDER BY schedules.schedules_date";
 $stmt = $conn->prepare($sql);
 $stmt->bind_param("ss", $username, $month);
 $stmt->execute();

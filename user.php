@@ -30,7 +30,7 @@ if ($role == 'Manager') {
     $stmt1 = $conn->prepare("
     SELECT COUNT(*) AS total 
     FROM schedules 
-    WHERE DATE_FORMAT(shift_date, '%Y-%m') = ?
+    WHERE DATE_FORMAT(schedules_date, '%Y-%m') = ?
     ");
     $stmt1->bind_param("s", $current_month);
     $stmt1->execute();
