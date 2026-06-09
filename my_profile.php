@@ -80,6 +80,7 @@ $profile = $result->fetch_assoc();
                 <nav class="hidden md:flex items-center gap-6 h-full mt-1">
                     <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="user.php">Dashboard</a>
                     <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="my_schedule.php">My Schedule</a>
+                    <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="my_payroll.php">My Payroll</a>
                     <a class="text-primary border-b-2 border-primary pb-1 font-semibold h-full flex items-center" href="my_profile.php">My Profile</a>
                 </nav>
             </div>
