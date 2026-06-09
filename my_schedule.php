@@ -112,11 +112,17 @@ $shifts_define = [
         body { font-family: 'Inter', sans-serif; }
 
         @media print {
+            @page {
+                size: landscape;
+                margin: 6mm;
+            }
             body {
                 background: white !important;
                 color: black !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
             }
-            header, footer, nav, button, .relative, form, .print-hide, .grid, h1 + p, hr {
+            header, footer, nav, button, .relative, form, .print-hide, .grid, h1 + p, hr, .h-6.w-px {
                 display: none !important;
             }
             main {
@@ -125,19 +131,46 @@ $shifts_define = [
                 padding: 0 !important;
                 margin: 0 !important;
             }
+            .overflow-x-auto {
+                overflow: visible !important;
+            }
             .border {
                 border-color: #d1d5db !important;
             }
             table {
                 width: 100% !important;
                 border-collapse: collapse !important;
+                table-layout: fixed !important;
             }
             th, td {
-                border: 1px solid #ccc !important;
+                border: 1px solid #d1d5db !important;
                 page-break-inside: avoid;
+                padding: 4px !important;
+                font-size: 11px !important;
+            }
+            th {
+                font-size: 11px !important;
+                padding: 6px 4px !important;
+            }
+            h1 {
+                font-size: 20px !important;
+                margin: 0 0 10px 0 !important;
+            }
+            /* force colors in print */
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
             }
             .sticky {
                 position: static !important;
+            }
+            .min-h-\[120px\] {
+                min-h: auto !important;
+                height: auto !important;
+            }
+            .min-h-\[90px\] {
+                min-h: auto !important;
+                height: auto !important;
             }
         }
     </style>
