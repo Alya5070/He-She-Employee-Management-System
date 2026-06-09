@@ -19,14 +19,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = $_POST['username'];
     $month = $_POST['month'];
 
+    // Get user_id for the username
+    $stmt_user = $conn->prepare("SELECT user_id FROM users WHERE username = ?");
+    $stmt_user->bind_param("s", $username);
+    $stmt_user->execute();
+    $user_res = $stmt_user->get_result();
+    $user_data = $user_res->fetch_assoc();
+    $user_id = $user_data ? $user_data['user_id'] : 0;
+    $stmt_user->close();
+
+    if ($user_id === 0) {
+        die("Employee not found.");
+    }
+
     // Calculate total shifts for the employee in the given month
     $stmt = $conn->prepare("
         SELECT COUNT(*) AS shift_count
         FROM schedules
-        WHERE employee_username = ?
-        AND DATE_FORMAT(date, '%Y-%m') = ?
+        WHERE user_id = ?
+        AND DATE_FORMAT(schedules_date, '%Y-%m') = ?
     ");
-    $stmt->bind_param("ss", $username, $month);
+    $stmt->bind_param("is", $user_id, $month);
     $stmt->execute();
     $result = $stmt->get_result();
     $data = $result->fetch_assoc();
@@ -36,11 +49,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Insert or update the salary record
     $stmt = $conn->prepare("
-        INSERT INTO salaries (employee_username, month, total_shifts, calculated_salary)
+        INSERT INTO salaries (user_id, month, total_shifts, calculated_salary)
         VALUES (?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE total_shifts = VALUES(total_shifts), calculated_salary = VALUES(calculated_salary)
     ");
-    $stmt->bind_param("ssii", $username, $month, $total_shifts, $calculated_salary);
+    $stmt->bind_param("isii", $user_id, $month, $total_shifts, $calculated_salary);
 
     if ($stmt->execute()) {
         $message = "Salary calculated for $username in $month: RM$calculated_salary (Total Shifts: $total_shifts)";
