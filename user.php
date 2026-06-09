@@ -56,15 +56,15 @@ $stmt1->close();
     $stmt2->close();
 } else {
     // Fetch employee profiles hours and shifts count
-    $stmt3 = $conn->prepare("SELECT * FROM employee_profiles WHERE user_id = (SELECT id FROM users WHERE username = ?)");
+    $stmt3 = $conn->prepare("SELECT * FROM employee_profiles WHERE user_id = (SELECT user_id FROM users WHERE username = ?)");
     $stmt3->bind_param("s", $username);
     $stmt3->execute();
     $profile_res = $stmt3->get_result();
     $profile = $profile_res ? $profile_res->fetch_assoc() : null;
     $stmt3->close();
 
-    $stmt4 = $conn->prepare("SELECT COUNT(*) AS total FROM schedules WHERE user_id= ?");
-    $stmt4->bind_param("s", $_SESSION['user_id']);
+    $stmt4 = $conn->prepare("SELECT COUNT(*) AS total FROM schedules WHERE user_id = (SELECT user_id FROM users WHERE username = ?)");
+    $stmt4->bind_param("s", $username);
     $stmt4->execute();
     $emp_shift_res = $stmt4->get_result();
     $emp_total_shifts = $emp_shift_res ? $emp_shift_res->fetch_assoc()['total'] : 0;

@@ -113,10 +113,6 @@ $profile = $result->fetch_assoc();
                         <span class="block text-xs font-semibold text-secondary uppercase">CONTACT NUMBER</span>
                         <p class="text-lg font-medium text-on-surface mt-1"><?php echo htmlspecialchars($profile['contact'] ? $profile['contact'] : 'Not provided'); ?></p>
                     </div>
-                    <div>
-                        <span class="block text-xs font-semibold text-secondary uppercase">HOURS WORKED</span>
-                        <p class="text-lg font-medium text-on-surface mt-1"><?php echo htmlspecialchars($profile['hours_worked']); ?> hrs</p>
-                    </div>
                 </div>
             <?php else: ?>
                 <div class="bg-yellow-50 border border-yellow-200 p-4 text-yellow-800 rounded-xl">
