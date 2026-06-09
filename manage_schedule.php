@@ -1,5 +1,5 @@
 <?php
-session_start();
+include 'session_init.php';
 include 'db_connect.php';
 
 // Check if the user is logged in and is a manager
@@ -8,191 +8,331 @@ if (!isset($_SESSION['username']) || $_SESSION['role'] != 'Manager') {
     exit();
 }
 
-class WeeklyShiftAssigner {
-    private $conn;
-
-    public function __construct($conn) {
-        $this->conn = $conn;
+// Helper: Get the 7 dates of the week for a given start date (Monday to Sunday)
+function getWeekDates($start_date) {
+    $dates = [];
+    $start = new DateTime($start_date);
+    // Force to Monday if it's not already
+    if ($start->format('N') != 1) {
+        $start->modify('this monday');
     }
-
-    public function assignWeeklyShifts($user_id, $start_date, $shift_time) {
-        if (empty($user_id) || empty($shift_time)) {
-            return ['success' => false, 'message' => 'Invalid user ID or shift time'];
-        }
-
-        $week_dates      = $this->getWeekDates($start_date);
-        $inserted_shifts = [];
-        $updated_count   = 0;
-        $inserted_count  = 0;
-
-        mysqli_begin_transaction($this->conn);
-
-        try {
-            foreach ($week_dates as $date) {
-                if (!$this->shiftExists($user_id, $date)) {
-                    $stmt = mysqli_prepare($this->conn,
-                        "INSERT INTO schedules (user_id, schedules_date, schedules_time) VALUES (?, ?, ?)"
-                    );
-                    mysqli_stmt_bind_param($stmt, 'sss', $user_id, $date, $shift_time);
-                    mysqli_stmt_execute($stmt);
-                    $inserted_shifts[] = [
-                        'shift_id'   => mysqli_insert_id($this->conn),
-                        'shift_date' => $date,
-                        'shift_time' => $shift_time
-                    ];
-                    mysqli_stmt_close($stmt);
-                    $inserted_count++;
-                } else {
-                    $stmt = mysqli_prepare($this->conn,
-                        "UPDATE schedules SET schedules_time = ? WHERE user_id = ? AND schedules_date = ?"
-                    );
-                    mysqli_stmt_bind_param($stmt, 'sss', $shift_time, $user_id, $date);
-                    if (!mysqli_stmt_execute($stmt)) {
-                        throw new Exception("Update failed: " . mysqli_stmt_error($stmt));
-                    }
-                    mysqli_stmt_close($stmt);
-                    $updated_count++;
-                }
-            }
-
-            mysqli_commit($this->conn);
-
-            return [
-                'success'         => true,
-                'message'         => "Shift '$shift_time' assigned for the full week. Inserted: $inserted_count, Updated: $updated_count",
-                'inserted_shifts' => $inserted_shifts,
-                'shift_time'      => $shift_time,
-                'week_start'      => $week_dates[0],
-                'week_end'        => end($week_dates),
-                'total_days'      => count($week_dates)
-            ];
-
-        } catch (Exception $e) {
-            mysqli_rollback($this->conn);
-            return ['success' => false, 'message' => $e->getMessage()];
-        }
+    for ($i = 0; $i < 7; $i++) {
+        $dates[] = $start->format('Y-m-d');
+        $start->modify('+1 day');
     }
-
-    public function getUserWeeklyShifts($user_id, $start_date) {
-        $week_dates = $this->getWeekDates($start_date);
-        $placeholders = implode(',', array_fill(0, count($week_dates), '?'));
-        $types = 's' . str_repeat('s', count($week_dates));
-        $params = array_merge([$user_id], $week_dates);
-
-        $stmt = mysqli_prepare($this->conn,
-            "SELECT id, user_id, schedules_date, schedules_time
-             FROM schedules
-             WHERE user_id = ? AND schedules_date IN ($placeholders)
-             ORDER BY schedules_date"
-        );
-        mysqli_stmt_bind_param($stmt, $types, ...$params);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-
-        $rows = [];
-        while ($row = mysqli_fetch_assoc($result)) {
-            $rows[] = $row;
-        }
-        mysqli_stmt_close($stmt);
-        return $rows;
-    }
-
-    public function deleteUserWeeklyShifts($user_id, $start_date) {
-        $week_dates   = $this->getWeekDates($start_date);
-        $placeholders = implode(',', array_fill(0, count($week_dates), '?'));
-        $types  = 's' . str_repeat('s', count($week_dates));
-        $params = array_merge([$user_id], $week_dates);
-
-        $stmt = mysqli_prepare($this->conn,
-            "DELETE FROM schedules WHERE user_id = ? AND schedules_date IN ($placeholders)"
-        );
-        mysqli_stmt_bind_param($stmt, $types, ...$params);
-        $ok = mysqli_stmt_execute($stmt);
-        $deleted = mysqli_stmt_affected_rows($stmt);
-        mysqli_stmt_close($stmt);
-
-        return ['success' => $ok, 'deleted_count' => $deleted];
-    }
-
-    public function getAllEmployees() {
-        $result = mysqli_query($this->conn,
-            "SELECT user_id, username, full_name FROM users WHERE role = 'Employee' ORDER BY full_name"
-        );
-        $rows = [];
-        while ($row = mysqli_fetch_assoc($result)) {
-            $rows[] = $row;
-        }
-        return $rows;
-    }
-
-    private function shiftExists($user_id, $schedules_date) {
-        $stmt = mysqli_prepare($this->conn,
-            "SELECT COUNT(*) AS cnt FROM schedules WHERE user_id = ? AND schedules_date = ?"
-        );
-        mysqli_stmt_bind_param($stmt, 'ss', $user_id, $schedules_date);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        $row    = mysqli_fetch_assoc($result);
-        mysqli_stmt_close($stmt);
-        return $row['cnt'] > 0;
-    }
-
-    private function getWeekDates($start_date) {
-        $dates = [];
-        $start = new DateTime($start_date);
-        if ($start->format('N') != 1) {
-            $start->modify('this monday');
-        }
-        for ($i = 0; $i < 7; $i++) {
-            $dates[] = $start->format('Y-m-d');
-            $start->modify('+1 day');
-        }
-        return $dates;
-    }
+    return $dates;
 }
 
-$shiftAssigner = new WeeklyShiftAssigner($conn);
+// Helper: Recalculate and update total hours worked for an employee (5 hours per shift)
+function recalculateEmployeeHours($conn, $user_id) {
+    $stmt = $conn->prepare("SELECT COUNT(*) AS total_shifts FROM schedules WHERE user_id = ?");
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $data = $stmt->get_result()->fetch_assoc();
+    $total_shifts = $data ? $data['total_shifts'] : 0;
+    $stmt->close();
+
+    $hours = $total_shifts * 5.00;
+
+    $upd = $conn->prepare("UPDATE employee_profiles SET hours_worked = ? WHERE user_id = ?");
+    $upd->bind_param("di", $hours, $user_id);
+    $upd->execute();
+    $upd->close();
+}
+
+// Default target week start (Monday)
+$week_start = isset($_GET['week_start']) ? $_GET['week_start'] : '';
+if (empty($week_start)) {
+    $d = new DateTime();
+    if ($d->format('N') != 1) {
+        $d->modify('this monday');
+    }
+    $week_start = $d->format('Y-m-d');
+} else {
+    $d = new DateTime($week_start);
+    if ($d->format('N') != 1) {
+        $d->modify('this monday');
+    }
+    $week_start = $d->format('Y-m-d');
+}
+
+$week_dates = getWeekDates($week_start);
+$prev_week = date('Y-m-d', strtotime($week_start . ' -7 days'));
+$next_week = date('Y-m-d', strtotime($week_start . ' +7 days'));
 
 // Handle AJAX actions
-if ($_POST && isset($_POST['action'])) {
-    if ($_POST['action'] === 'assign') {
-        $user_id    = $_POST['user_id'];
-        $week_start = $_POST['week_start'];
-        $shift_time = $_POST['shift_time'];
-        echo json_encode($shiftAssigner->assignWeeklyShifts($user_id, $week_start, $shift_time));
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    header('Content-Type: application/json');
+
+    // CSRF Verification
+    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        echo json_encode(['success' => false, 'message' => 'CSRF token validation failed.']);
         exit;
     }
-    if ($_POST['action'] === 'view') {
-        $user_id    = $_POST['user_id'];
-        $week_start = $_POST['week_start'];
-        $shifts = $shiftAssigner->getUserWeeklyShifts($user_id, $week_start);
-        echo json_encode([
-            'success'    => true,
-            'shifts'     => $shifts,
-            'shift_time' => !empty($shifts) ? $shifts[0]['schedules_time'] : 'No shifts assigned'
-        ]);
+
+    if ($_POST['action'] === 'add_shift') {
+        $user_id = intval($_POST['user_id']);
+        $date = $_POST['date'];
+        $shift_time = strtolower(trim($_POST['shift_time']));
+
+        $allowed_shifts = ['morning', 'evening', 'night'];
+        if (!in_array($shift_time, $allowed_shifts)) {
+            echo json_encode(['success' => false, 'message' => 'Invalid shift type.']);
+            exit;
+        }
+
+        // Check if employee is already working this specific shift
+        $stmt = $conn->prepare("SELECT id FROM schedules WHERE user_id = ? AND schedules_date = ? AND LOWER(schedules_time) = ?");
+        $stmt->bind_param("iss", $user_id, $date, $shift_time);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $existing = $res->fetch_assoc();
+        $stmt->close();
+
+        if ($existing) {
+            echo json_encode(['success' => false, 'message' => 'Barista is already scheduled for this shift.']);
+            exit;
+        }
+
+        // Block shift if employee has an approved leave on this date
+        $leave_chk = $conn->prepare("SELECT id FROM leave_requests WHERE user_id = ? AND leave_date = ? AND status = 'Approved'");
+        $leave_chk->bind_param("is", $user_id, $date);
+        $leave_chk->execute();
+        $on_leave = $leave_chk->get_result()->fetch_assoc();
+        $leave_chk->close();
+
+        if ($on_leave) {
+            echo json_encode(['success' => false, 'message' => 'This barista has an approved leave on ' . date('D d M Y', strtotime($date)) . '. Cannot assign a shift.']);
+            exit;
+        }
+
+        // Check availability preference — warn but do not block
+        $day_of_week = intval(date('N', strtotime($date))); // 1=Mon ... 7=Sun
+        $avail_chk = $conn->prepare("SELECT is_available FROM availability_preferences WHERE user_id = ? AND day_of_week = ? AND time_slot = ?");
+        $avail_chk->bind_param("iis", $user_id, $day_of_week, $shift_time);
+        $avail_chk->execute();
+        $avail_row = $avail_chk->get_result()->fetch_assoc();
+        $avail_chk->close();
+
+        $avail_warning = false;
+        if ($avail_row && intval($avail_row['is_available']) === 0) {
+            // Only block if force_confirm flag not sent
+            if (!isset($_POST['force_confirm']) || $_POST['force_confirm'] !== '1') {
+                echo json_encode(['success' => false, 'availability_warning' => true, 'message' => 'This barista marked themselves unavailable for ' . ucfirst($shift_time) . ' shifts on ' . date('l', strtotime($date)) . 's. Confirm to schedule anyway.']);
+                exit;
+            }
+        }
+
+        // Insert new shift schedule
+        $stmt = $conn->prepare("INSERT INTO schedules (user_id, schedules_date, schedules_time) VALUES (?, ?, ?)");
+        $stmt->bind_param("iss", $user_id, $date, $shift_time);
+        if ($stmt->execute()) {
+            recalculateEmployeeHours($conn, $user_id);
+            echo json_encode(['success' => true]);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Database save error.']);
+        }
+        $stmt->close();
         exit;
     }
-    if ($_POST['action'] === 'delete') {
-        $user_id    = $_POST['user_id'];
-        $week_start = $_POST['week_start'];
-        echo json_encode($shiftAssigner->deleteUserWeeklyShifts($user_id, $week_start));
+
+    if ($_POST['action'] === 'remove_shift') {
+        $schedule_id = intval($_POST['schedule_id']);
+        
+        $find = $conn->prepare("SELECT user_id FROM schedules WHERE id = ?");
+        $find->bind_param("i", $schedule_id);
+        $find->execute();
+        $f_res = $find->get_result()->fetch_assoc();
+        $user_id = $f_res ? $f_res['user_id'] : 0;
+        $find->close();
+
+        $stmt = $conn->prepare("DELETE FROM schedules WHERE id = ?");
+        $stmt->bind_param("i", $schedule_id);
+        if ($stmt->execute()) {
+            if ($user_id > 0) {
+                recalculateEmployeeHours($conn, $user_id);
+            }
+            echo json_encode(['success' => true]);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Database delete error.']);
+        }
+        $stmt->close();
         exit;
     }
-    if ($_POST['action'] === 'get_employees') {
-        echo json_encode(['success' => true, 'employees' => $shiftAssigner->getAllEmployees()]);
+
+    if ($_POST['action'] === 'copy_previous_week') {
+        $current_week_start = $_POST['week_start'];
+        $current_monday = new DateTime($current_week_start);
+        if ($current_monday->format('N') != 1) {
+            $current_monday->modify('this monday');
+        }
+        $current_week_dates = [];
+        $temp = clone $current_monday;
+        for ($i = 0; $i < 7; $i++) {
+            $current_week_dates[] = $temp->format('Y-m-d');
+            $temp->modify('+1 day');
+        }
+
+        $prev_monday = clone $current_monday;
+        $prev_monday->modify('-7 days');
+        $prev_week_dates = [];
+        $temp = clone $prev_monday;
+        for ($i = 0; $i < 7; $i++) {
+            $prev_week_dates[] = $temp->format('Y-m-d');
+            $temp->modify('+1 day');
+        }
+
+        $placeholders = implode(',', array_fill(0, 7, '?'));
+        $types = str_repeat('s', 7);
+        $stmt = $conn->prepare("SELECT user_id, schedules_date, schedules_time FROM schedules WHERE schedules_date IN ($placeholders)");
+        $stmt->bind_param($types, ...$prev_week_dates);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $prev_schedules = [];
+        while ($row = $res->fetch_assoc()) {
+            $prev_schedules[] = $row;
+        }
+        $stmt->close();
+
+        if (empty($prev_schedules)) {
+            echo json_encode(['success' => false, 'message' => 'No schedules found in the previous week to copy.']);
+            exit;
+        }
+
+        $affected_users = [];
+        $conn->begin_transaction();
+        try {
+            foreach ($prev_schedules as $sched) {
+                $prev_date = new DateTime($sched['schedules_date']);
+                $day_idx = intval($prev_date->format('N')) - 1;
+                $target_date = $current_week_dates[$day_idx];
+                $uid = $sched['user_id'];
+                $st = $sched['schedules_time'];
+
+                $chk = $conn->prepare("SELECT id FROM schedules WHERE user_id = ? AND schedules_date = ? AND LOWER(schedules_time) = LOWER(?)");
+                $chk->bind_param("iss", $uid, $target_date, $st);
+                $chk->execute();
+                $chk_res = $chk->get_result();
+                $exists = $chk_res->fetch_assoc();
+                $chk->close();
+
+                if (!$exists) {
+                     $ins = $conn->prepare("INSERT INTO schedules (user_id, schedules_date, schedules_time) VALUES (?, ?, ?)");
+                     $ins->bind_param("iss", $uid, $target_date, $st);
+                     $ins->execute();
+                     $ins->close();
+                     $affected_users[] = $uid;
+                }
+            }
+            $conn->commit();
+            
+            $unique_users = array_unique($affected_users);
+            foreach ($unique_users as $uid) {
+                recalculateEmployeeHours($conn, $uid);
+            }
+            echo json_encode(['success' => true]);
+        } catch (Exception $e) {
+            $conn->rollback();
+            echo json_encode(['success' => false, 'message' => 'Database copy error: ' . $e->getMessage()]);
+        }
         exit;
     }
 }
 
-$employees = $shiftAssigner->getAllEmployees();
+// Fetch all employees for dropdown options
+$employees_res = $conn->query("SELECT user_id, username, full_name FROM users WHERE role = 'Employee' ORDER BY full_name");
+$employees = [];
+while ($row = $employees_res->fetch_assoc()) {
+    $employees[] = $row;
+}
+
+// Fetch all schedules for this week and group them by [shift_time][date]
+$placeholders = implode(',', array_fill(0, count($week_dates), '?'));
+$types = str_repeat('s', count($week_dates));
+$stmt = $conn->prepare("
+    SELECT s.id AS schedule_id, s.user_id, s.schedules_date, s.schedules_time, u.full_name, u.username
+    FROM schedules s
+    JOIN users u ON s.user_id = u.user_id
+    WHERE s.schedules_date IN ($placeholders)
+");
+$stmt->bind_param($types, ...$week_dates);
+$stmt->execute();
+$schedules_res = $stmt->get_result();
+
+$grid = [
+    'morning' => [],
+    'evening' => [],
+    'night' => []
+];
+$weekly_shift_counts = [];
+$daily_shift_counts = [];
+
+while ($row = $schedules_res->fetch_assoc()) {
+    $st = strtolower($row['schedules_time']);
+    $uid = $row['user_id'];
+    $date = $row['schedules_date'];
+
+    if (isset($grid[$st])) {
+        $grid[$st][$date][] = [
+            'schedule_id' => $row['schedule_id'],
+            'user_id' => $uid,
+            'full_name' => $row['full_name'],
+            'username' => $row['username']
+        ];
+    }
+
+    // Track weekly shift counts
+    if (!isset($weekly_shift_counts[$uid])) {
+        $weekly_shift_counts[$uid] = 0;
+    }
+    $weekly_shift_counts[$uid]++;
+
+    // Track daily shift counts
+    if (!isset($daily_shift_counts[$uid][$date])) {
+        $daily_shift_counts[$uid][$date] = 0;
+    }
+    $daily_shift_counts[$uid][$date]++;
+}
+$stmt->close();
+
+$shifts_define = [
+    'morning' => ['label' => 'Morning', 'hours' => '08:00 - 13:00'],
+    'evening' => ['label' => 'Evening', 'hours' => '13:00 - 18:00'],
+    'night' => ['label' => 'Night', 'hours' => '18:00 - 23:00']
+];
+
+// Calculate employee weekly allocation counts & statuses
+$unassigned_baristas = [];
+$low_baristas = [];
+$optimal_baristas = [];
+$overworked_baristas = [];
+
+foreach ($employees as $emp) {
+    $uid = $emp['user_id'];
+    $count = isset($weekly_shift_counts[$uid]) ? $weekly_shift_counts[$uid] : 0;
+    $emp_info = [
+        'name' => $emp['full_name'],
+        'username' => $emp['username'],
+        'count' => $count
+    ];
+    
+    if ($count === 0) {
+        $unassigned_baristas[] = $emp_info;
+    } elseif ($count < 3) {
+        $low_baristas[] = $emp_info;
+    } elseif ($count <= 5) {
+        $optimal_baristas[] = $emp_info;
+    } else {
+        $overworked_baristas[] = $emp_info;
+    }
+}
 ?>
 <!DOCTYPE html>
 <html class="light" lang="en">
 <head>
     <meta charset="utf-8"/>
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-    <title>He&She Coffee | Manage Shifts</title>
+    <title>He&She Coffee | Weekly Calendar Grid</title>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
@@ -202,6 +342,39 @@ $employees = $shiftAssigner->getAllEmployees();
             vertical-align: middle;
         }
         body { font-family: 'Inter', sans-serif; }
+
+        @media print {
+            body {
+                background: white !important;
+                color: black !important;
+            }
+            header, footer, nav, button, .relative, form, .print-hide, .grid, h1 + p, hr {
+                display: none !important;
+            }
+            main {
+                max-width: 100% !important;
+                width: 100% !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+            .border {
+                border-color: #d1d5db !important;
+            }
+            .shadow-sm, .shadow-xl {
+                box-shadow: none !important;
+            }
+            table {
+                width: 100% !important;
+                border-collapse: collapse !important;
+            }
+            th, td {
+                border: 1px solid #ccc !important;
+                page-break-inside: avoid;
+            }
+            .sticky {
+                position: static !important;
+            }
+        }
     </style>
     <script id="tailwind-config">
         tailwind.config = {
@@ -249,6 +422,7 @@ $employees = $shiftAssigner->getAllEmployees();
                 <nav class="hidden md:flex items-center gap-6 h-full mt-1">
                     <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="user.php">Dashboard</a>
                     <a class="text-primary border-b-2 border-primary pb-1 font-semibold h-full flex items-center" href="manage_schedule.php">Schedules</a>
+                    <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="manage_leaves.php">Leaves</a>
                     <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="manage_salaries.php">Payroll</a>
                     <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="manage_employee_profile.php">Profiles</a>
                 </nav>
@@ -261,337 +435,440 @@ $employees = $shiftAssigner->getAllEmployees();
     </header>
 
     <!-- Main Content -->
-    <main class="max-w-[860px] mx-auto px-6 py-8 flex-grow w-full">
-
-        <!-- Page Header -->
-        <section class="mb-6">
-            <h1 class="text-2xl font-bold text-on-surface">Weekly Shift Assignment</h1>
-            <p class="text-sm text-secondary mt-1">Assign the same shift to an employee for the entire week (Mon – Sun)</p>
-        </section>
-
-        <!-- Step 1: Select Employee -->
-        <div class="bg-white border border-outline-variant p-6 rounded-xl mb-4 space-y-4">
-            <div class="flex items-center gap-3">
-                <div class="w-7 h-7 rounded-full bg-primary text-white text-xs font-semibold flex items-center justify-center flex-shrink-0">1</div>
-                <span class="font-semibold text-on-surface">Select employee</span>
+    <main class="max-w-[1400px] mx-auto px-6 py-8 flex-grow w-full space-y-6">
+        
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-outline-variant pb-4 gap-4">
+            <div>
+                <h1 class="text-2xl font-bold text-on-surface">Weekly Schedule Calendar</h1>
+                <p class="text-sm text-secondary mt-0.5">Weekly roster. Assign baristas to shifts or remove them as needed.</p>
             </div>
+            
+            <!-- Week Selector & Actions Controls -->
+            <div class="flex items-center gap-2 print-hide flex-nowrap">
+                <!-- Highlight Filter Dropdown -->
+                <div class="flex items-center gap-1 mr-1">
+                    <label for="highlight_barista" class="text-[10px] font-semibold text-secondary uppercase tracking-wider whitespace-nowrap">Highlight:</label>
+                    <select id="highlight_barista" onchange="applyHighlightFilter(this.value)"
+                            class="h-10 px-2 border border-outline-variant text-xs text-on-surface bg-white outline-none rounded-xl">
+                        <option value="">Show All</option>
+                        <?php foreach ($employees as $emp): ?>
+                            <option value="<?php echo htmlspecialchars($emp['username']); ?>">
+                                <?php echo htmlspecialchars($emp['full_name']); ?> (@<?php echo htmlspecialchars($emp['username']); ?>)
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <button onclick="copyPreviousWeek()" class="h-10 px-2.5 border border-outline-variant hover:bg-surface-container-low transition-colors rounded-xl font-semibold flex items-center gap-1 text-xs whitespace-nowrap" title="Copy last week's shifts to this week">
+                    <span class="material-symbols-outlined text-base">content_copy</span> Copy Last Week
+                </button>
+                <button onclick="window.print()" class="h-10 px-2.5 border border-outline-variant hover:bg-surface-container-low transition-colors rounded-xl font-semibold flex items-center gap-1 text-xs whitespace-nowrap">
+                    <span class="material-symbols-outlined text-base">print</span> Print Roster
+                </button>
+                <div class="h-6 w-px bg-outline-variant mx-0.5"></div>
+                <div style="display: inline-flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 6px;">
+                    <a href="manage_schedule.php?week_start=<?php echo $prev_week; ?>" 
+                       class="h-10 w-10 border border-outline-variant flex items-center justify-center hover:bg-surface-container-low transition-colors rounded-xl" title="Previous Week">
+                        <span class="material-symbols-outlined text-lg">chevron_left</span>
+                    </a>
+                    
+                    <form action="manage_schedule.php" method="GET" style="display: inline-flex; margin: 0; align-items: center;">
+                        <input type="date" name="week_start" id="week_start_picker" value="<?php echo $week_start; ?>" onchange="this.form.submit()"
+                               class="h-10 px-3 border border-outline-variant text-sm text-on-surface bg-white outline-none rounded-xl font-mono">
+                    </form>
 
-            <input
-                type="text"
-                id="empSearch"
-                placeholder="Search by name…"
-                oninput="filterEmployees(this.value)"
-                autocomplete="off"
-                class="w-full h-10 px-4 border border-outline-variant bg-surface text-sm text-on-surface focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all duration-200 rounded"
-            >
+                    <a href="manage_schedule.php?week_start=<?php echo $next_week; ?>" 
+                       class="h-10 w-10 border border-outline-variant flex items-center justify-center hover:bg-surface-container-low transition-colors rounded-xl" title="Next Week">
+                        <span class="material-symbols-outlined text-lg">chevron_right</span>
+                    </a>
+                </div>
+            </div>
+        </div>
 
-            <div id="empList" class="flex flex-col gap-2 max-h-56 overflow-y-auto pr-1">
-                <?php if (empty($employees)): ?>
-                    <p class="text-sm text-secondary text-center py-6">No employees found.</p>
-                <?php else: ?>
-                    <?php foreach ($employees as $emp):
-                        $initials = implode('', array_map(fn($w) => strtoupper($w[0]), explode(' ', trim($emp['full_name']))));
-                        $initials = substr($initials, 0, 2);
+        <!-- Allocation & Alerts Summary -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <!-- Unassigned Card -->
+            <div class="bg-white border border-outline-variant p-4 rounded-xl shadow-sm space-y-2">
+                <div class="flex justify-between items-center">
+                    <span class="text-xs font-semibold text-secondary uppercase tracking-wider">Unassigned</span>
+                    <span class="px-2 py-0.5 bg-red-100 text-red-800 text-[10px] font-bold rounded">Alert</span>
+                </div>
+                <div class="text-2xl font-bold text-on-surface"><?php echo count($unassigned_baristas); ?></div>
+                <div class="text-xs text-secondary truncate">
+                    <?php 
+                    if (empty($unassigned_baristas)) {
+                        echo "All scheduled";
+                    } else {
+                        echo implode(', ', array_map(fn($b) => $b['name'], $unassigned_baristas));
+                    }
                     ?>
-                    <label class="emp-option flex items-center gap-3 p-3 border border-outline-variant rounded cursor-pointer hover:bg-surface-container-low transition-colors"
-                           data-id="<?= htmlspecialchars($emp['user_id']) ?>"
-                           data-name="<?= htmlspecialchars($emp['full_name']) ?>"
-                           onclick="selectEmployee(this)">
-                        <input type="radio" name="user_id" value="<?= htmlspecialchars($emp['user_id']) ?>" class="hidden">
-                        <div class="emp-avatar w-9 h-9 rounded-full bg-surface-container flex items-center justify-center text-xs font-semibold text-secondary flex-shrink-0 uppercase">
-                            <?= $initials ?>
-                        </div>
-                        <div class="flex-grow">
-                            <div class="text-sm font-semibold text-on-surface"><?= htmlspecialchars($emp['full_name']) ?></div>
-                            <div class="text-xs text-secondary">ID #<?= htmlspecialchars($emp['user_id']) ?></div>
-                        </div>
-                        <div class="emp-check w-5 h-5 rounded-full border border-outline-variant flex items-center justify-center flex-shrink-0">
-                            <div class="emp-check-dot w-2 h-2 rounded-full bg-primary hidden"></div>
-                        </div>
-                    </label>
-                    <?php endforeach; ?>
-                <?php endif; ?>
+                </div>
+            </div>
+
+            <!-- Under-scheduled Card -->
+            <div class="bg-white border border-outline-variant p-4 rounded-xl shadow-sm space-y-2">
+                <div class="flex justify-between items-center">
+                    <span class="text-xs font-semibold text-secondary uppercase tracking-wider">Under-scheduled (&lt; 3)</span>
+                    <span class="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded">Low</span>
+                </div>
+                <div class="text-2xl font-bold text-on-surface"><?php echo count($low_baristas); ?></div>
+                <div class="text-xs text-secondary truncate">
+                    <?php 
+                    if (empty($low_baristas)) {
+                        echo "None";
+                    } else {
+                        echo implode(', ', array_map(fn($b) => $b['name'] . " (" . $b['count'] . ")", $low_baristas));
+                    }
+                    ?>
+                </div>
+            </div>
+
+            <!-- Optimal Allocation Card -->
+            <div class="bg-white border border-outline-variant p-4 rounded-xl shadow-sm space-y-2">
+                <div class="flex justify-between items-center">
+                    <span class="text-xs font-semibold text-secondary uppercase tracking-wider">Optimal (3-5 Shifts)</span>
+                    <span class="px-2 py-0.5 bg-green-100 text-green-800 text-[10px] font-bold rounded">Good</span>
+                </div>
+                <div class="text-2xl font-bold text-on-surface"><?php echo count($optimal_baristas); ?></div>
+                <div class="text-xs text-secondary truncate">
+                    <?php echo count($optimal_baristas) . " baristas in green zone"; ?>
+                </div>
+            </div>
+
+            <!-- Overworked Card -->
+            <div class="bg-white border border-outline-variant p-4 rounded-xl shadow-sm space-y-2">
+                <div class="flex justify-between items-center">
+                    <span class="text-xs font-semibold text-secondary uppercase tracking-wider">Overworked (&gt; 5)</span>
+                    <span class="px-2 py-0.5 bg-red-100 text-red-800 text-[10px] font-bold rounded">High</span>
+                </div>
+                <div class="text-2xl font-bold text-on-surface"><?php echo count($overworked_baristas); ?></div>
+                <div class="text-xs text-secondary truncate text-red-600 font-semibold">
+                    <?php 
+                    if (empty($overworked_baristas)) {
+                        echo "None";
+                    } else {
+                        echo implode(', ', array_map(fn($b) => $b['name'] . " (" . $b['count'] . ")", $overworked_baristas));
+                    }
+                    ?>
+                </div>
             </div>
         </div>
 
-        <!-- Step 2: Choose Week -->
-        <div class="bg-white border border-outline-variant p-6 rounded-xl mb-4 space-y-4">
-            <div class="flex items-center gap-3">
-                <div class="w-7 h-7 rounded-full bg-primary text-white text-xs font-semibold flex items-center justify-center flex-shrink-0">2</div>
-                <span class="font-semibold text-on-surface">Choose week</span>
+        <!-- Weekly Calendar Grid -->
+        <div class="bg-white border border-outline-variant rounded-xl overflow-hidden shadow-sm">
+            <div class="overflow-x-auto">
+                <table class="w-full border-collapse table-fixed text-left">
+                    <thead>
+                        <tr class="bg-surface-container-low border-b border-outline-variant text-xs font-semibold text-secondary uppercase tracking-wider">
+                            <th class="py-4 px-4 w-[160px] sticky left-0 bg-surface-container-low z-10 border-r border-outline-variant">Shift / Time</th>
+                            <?php foreach ($week_dates as $date): 
+                                $day_name = date('D', strtotime($date));
+                                $day_num = date('d M', strtotime($date));
+                                $is_today = ($date === date('Y-m-d')) ? 'bg-amber-50 text-amber-900 border-x border-amber-300' : '';
+                            ?>
+                                <th class="py-3 px-3 text-center <?php echo $is_today; ?>">
+                                    <div class="font-bold text-on-surface"><?php echo $day_name; ?></div>
+                                    <div class="text-[10px] text-secondary font-mono mt-0.5"><?php echo $day_num; ?></div>
+                                </th>
+                            <?php endforeach; ?>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-outline-variant text-sm">
+                        <?php foreach ($shifts_define as $st_key => $st_val): ?>
+                            <tr class="align-top hover:bg-surface-container-low/20 transition-colors">
+                                <!-- Shift Info Column -->
+                                <td class="py-4 px-4 font-semibold sticky left-0 bg-white border-r border-outline-variant z-10">
+                                    <div class="text-on-surface"><?php echo $st_val['label']; ?></div>
+                                    <div class="text-[10px] text-secondary font-mono mt-0.5"><?php echo $st_val['hours']; ?></div>
+                                </td>
+
+                                <!-- Days Columns -->
+                                <?php foreach ($week_dates as $date): 
+                                    $assigned_baristas = isset($grid[$st_key][$date]) ? $grid[$st_key][$date] : [];
+                                    $assigned_user_ids = array_column($assigned_baristas, 'user_id');
+                                ?>
+                                    <td class="py-3 px-3 min-h-[120px] bg-slate-50/20 border-r border-outline-variant last:border-r-0">
+                                        <div class="flex flex-col gap-2 min-h-[90px] justify-between h-full">
+                                            <?php 
+                                            $coverage_count = count($assigned_baristas);
+                                            ?>
+                                            <!-- Coverage Badge -->
+                                            <div class="flex justify-between items-center border-b border-outline-variant/30 pb-1">
+                                                <span class="text-[9px] uppercase tracking-wider font-semibold text-secondary">Coverage</span>
+                                                <?php if ($coverage_count === 0): ?>
+                                                    <span class="px-1.5 py-0.5 bg-red-50 text-red-600 text-[8px] font-bold rounded-lg border border-red-100 uppercase tracking-wider">0 Staffed</span>
+                                                <?php elseif ($coverage_count === 1): ?>
+                                                    <span class="px-1.5 py-0.5 bg-amber-50 text-amber-600 text-[8px] font-bold rounded-lg border border-amber-100 uppercase tracking-wider">1 Staffed</span>
+                                                <?php else: ?>
+                                                    <span class="px-1.5 py-0.5 bg-green-50 text-green-600 text-[8px] font-bold rounded-lg border border-green-100 uppercase tracking-wider"><?php echo $coverage_count; ?> Staffed</span>
+                                                <?php endif; ?>
+                                            </div>
+
+                                            <!-- List of Assigned Baristas (Event Chips) -->
+                                            <div class="space-y-1.5 flex-grow">
+                                                <?php if (empty($assigned_baristas)): ?>
+                                                    <div class="text-[11px] text-secondary/60 text-center py-4 border border-dashed border-outline-variant/60 rounded-lg select-none">
+                                                        Empty
+                                                    </div>
+                                                <?php else: ?>
+                                                    <?php foreach ($assigned_baristas as $barista): 
+                                                         $uid = $barista['user_id'];
+                                                         $has_double = (isset($daily_shift_counts[$uid][$date]) && $daily_shift_counts[$uid][$date] > 1);
+                                                         $has_overwork = (isset($weekly_shift_counts[$uid]) && $weekly_shift_counts[$uid] > 5);
+                                                         
+                                                         $chip_class = "bg-white border-outline-variant";
+                                                         if ($st_key === 'morning') {
+                                                             $chip_class = "border-l-4 border-l-amber-400 bg-amber-50/40 border-y border-r border-outline-variant";
+                                                         } elseif ($st_key === 'evening') {
+                                                             $chip_class = "border-l-4 border-l-blue-400 bg-blue-50/40 border-y border-r border-outline-variant";
+                                                         } elseif ($st_key === 'night') {
+                                                             $chip_class = "border-l-4 border-l-zinc-800 bg-neutral-100 border-y border-r border-outline-variant";
+                                                         }
+                                                     ?>
+                                                         <div data-username="<?php echo htmlspecialchars($barista['username']); ?>" class="barista-card flex flex-col gap-1 px-2.5 py-1.5 hover:border-primary transition-all rounded-lg shadow-sm <?php echo $chip_class; ?>">
+                                                            <div class="flex items-center justify-between gap-1 w-full">
+                                                                <div class="truncate">
+                                                                    <div class="text-xs font-semibold text-on-surface truncate" title="<?php echo htmlspecialchars($barista['full_name']); ?>">
+                                                                        <?php echo htmlspecialchars($barista['full_name']); ?>
+                                                                    </div>
+                                                                </div>
+                                                                <button onclick="removeBarista(this, <?php echo $barista['schedule_id']; ?>)" 
+                                                                        class="text-secondary hover:text-red-600 rounded-full h-5 w-5 flex items-center justify-center transition-colors flex-shrink-0"
+                                                                        title="Remove from Shift">
+                                                                    <span class="material-symbols-outlined text-sm">close</span>
+                                                                </button>
+                                                            </div>
+                                                            <?php if ($has_double || $has_overwork): ?>
+                                                                <div class="flex flex-wrap gap-1 mt-0.5">
+                                                                    <?php if ($has_double): ?>
+                                                                        <span class="px-1 py-0.5 bg-red-50 text-red-700 text-[8px] font-bold rounded border border-red-100 uppercase tracking-wider">Double</span>
+                                                                    <?php endif; ?>
+                                                                    <?php if ($has_overwork): ?>
+                                                                        <span class="px-1 py-0.5 bg-amber-50 text-amber-700 text-[8px] font-bold rounded border border-amber-100 uppercase tracking-wider">Overwork</span>
+                                                                    <?php endif; ?>
+                                                                </div>
+                                                            <?php endif; ?>
+                                                        </div>
+                                                    <?php endforeach; ?>
+                                                <?php endif; ?>
+                                            </div>
+
+                                            <!-- Add Barista Trigger Button & Menu -->
+                                            <div class="relative pt-1 border-t border-outline-variant/30">
+                                                <button onclick="toggleAddMenu(this)" 
+                                                        class="w-full h-7 border border-outline-variant bg-white hover:bg-surface-container-low text-[11px] font-semibold text-secondary hover:text-primary transition-all flex items-center justify-center gap-1 rounded-lg">
+                                                    <span class="material-symbols-outlined text-xs">add</span> Add Barista
+                                                </button>
+
+                                                <!-- Inline Popover Barista Select -->
+                                                <div class="hidden absolute z-20 bottom-[105%] left-0 w-full bg-white border border-outline-variant p-2 rounded-xl shadow-xl space-y-1 max-h-48 overflow-y-auto">
+                                                    <?php 
+                                                    $available_found = false;
+                                                    foreach ($employees as $emp):
+                                                        if (in_array($emp['user_id'], $assigned_user_ids)) continue;
+                                                        $available_found = true;
+
+                                                        $pot_uid = $emp['user_id'];
+                                                        $pot_double = (isset($daily_shift_counts[$pot_uid][$date]) && $daily_shift_counts[$pot_uid][$date] >= 1);
+                                                        $pot_overwork = (isset($weekly_shift_counts[$pot_uid]) && $weekly_shift_counts[$pot_uid] >= 5);
+                                                        
+                                                        $suffix = "";
+                                                        if ($pot_double && $pot_overwork) {
+                                                            $suffix = " (Double & Max)";
+                                                        } elseif ($pot_double) {
+                                                            $suffix = " (Double)";
+                                                        } elseif ($pot_overwork) {
+                                                            $suffix = " (Max)";
+                                                        }
+                                                    ?>
+                                                        <button onclick="addBaristaToShift(this, <?php echo $emp['user_id']; ?>, '<?php echo $date; ?>', '<?php echo $st_key; ?>')" 
+                                                                class="w-full text-left px-2.5 py-1.5 text-xs text-on-surface hover:bg-surface-container-low rounded-lg truncate font-medium flex justify-between items-center">
+                                                            <span class="truncate"><?php echo htmlspecialchars($emp['full_name']); ?></span>
+                                                            <?php if (!empty($suffix)): ?>
+                                                                <span class="text-[8px] font-bold text-red-500 uppercase tracking-wider flex-shrink-0 ml-1"><?php echo $suffix; ?></span>
+                                                            <?php endif; ?>
+                                                        </button>
+                                                    <?php endforeach; ?>
+                                                    
+                                                    <?php if (!$available_found): ?>
+                                                        <div class="text-[10px] text-secondary text-center py-2 select-none">
+                                                            All assigned
+                                                        </div>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </div>
+
+                                        </div>
+                                    </td>
+                                <?php endforeach; ?>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
             </div>
-            <input
-                type="date"
-                id="weekStart"
-                oninput="updateWeekPreview(this.value)"
-                class="w-full h-10 px-4 border border-outline-variant bg-surface text-sm text-on-surface focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all duration-200 rounded font-mono"
-            >
-            <div id="weekPreview" class="flex gap-2 flex-wrap mt-2"></div>
         </div>
 
-        <!-- Step 3: Select Shift -->
-        <div class="bg-white border border-outline-variant p-6 rounded-xl mb-4 space-y-4">
-            <div class="flex items-center gap-3">
-                <div class="w-7 h-7 rounded-full bg-primary text-white text-xs font-semibold flex items-center justify-center flex-shrink-0">3</div>
-                <span class="font-semibold text-on-surface">Select shift</span>
-            </div>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <!-- Morning -->
-                <label class="shift-card flex flex-col gap-1 p-4 border-2 border-outline-variant rounded-xl cursor-pointer hover:border-primary transition-all" data-value="morning" onclick="selectShift(this)">
-                    <input type="radio" name="shift_time" value="morning" class="hidden">
-                    <span class="text-2xl">☀️</span>
-                    <span class="font-semibold text-sm text-on-surface">Morning</span>
-                    <span class="text-xs text-secondary font-mono">08:00 – 13:00</span>
-                    <div class="shift-tick hidden mt-1">
-                        <span class="inline-flex items-center gap-1 text-xs font-semibold text-primary">
-                            <span class="material-symbols-outlined text-sm">check_circle</span> Selected
-                        </span>
-                    </div>
-                </label>
-                <!-- Evening -->
-                <label class="shift-card flex flex-col gap-1 p-4 border-2 border-outline-variant rounded-xl cursor-pointer hover:border-primary transition-all" data-value="evening" onclick="selectShift(this)">
-                    <input type="radio" name="shift_time" value="evening" class="hidden">
-                    <span class="text-2xl">🌤️</span>
-                    <span class="font-semibold text-sm text-on-surface">Evening</span>
-                    <span class="text-xs text-secondary font-mono">13:00 – 18:00</span>
-                    <div class="shift-tick hidden mt-1">
-                        <span class="inline-flex items-center gap-1 text-xs font-semibold text-primary">
-                            <span class="material-symbols-outlined text-sm">check_circle</span> Selected
-                        </span>
-                    </div>
-                </label>
-                <!-- Night -->
-                <label class="shift-card flex flex-col gap-1 p-4 border-2 border-outline-variant rounded-xl cursor-pointer hover:border-primary transition-all" data-value="night" onclick="selectShift(this)">
-                    <input type="radio" name="shift_time" value="night" class="hidden">
-                    <span class="text-2xl">🌙</span>
-                    <span class="font-semibold text-sm text-on-surface">Night</span>
-                    <span class="text-xs text-secondary font-mono">18:00 – 23:00</span>
-                    <div class="shift-tick hidden mt-1">
-                        <span class="inline-flex items-center gap-1 text-xs font-semibold text-primary">
-                            <span class="material-symbols-outlined text-sm">check_circle</span> Selected
-                        </span>
-                    </div>
-                </label>
-            </div>
-        </div>
-
-        <!-- Actions -->
-        <div class="bg-white border border-outline-variant p-6 rounded-xl mb-4">
-            <div class="flex flex-wrap gap-3">
-                <button id="btnAssign" onclick="assignShifts()" class="h-10 px-5 bg-primary text-white text-sm font-semibold hover:bg-neutral-800 transition-colors rounded flex items-center gap-2">
-                    <span class="material-symbols-outlined text-sm">check</span> Assign Shifts
-                </button>
-                <button id="btnView" onclick="viewShifts()" class="h-10 px-5 border border-outline-variant text-on-surface text-sm font-semibold hover:bg-surface-container-low transition-colors rounded flex items-center gap-2">
-                    <span class="material-symbols-outlined text-sm">visibility</span> View Shifts
-                </button>
-               
-            </div>
-        </div>
-
-        <!-- Result Area -->
-        <div id="result-area"></div>
-
-        <!-- Back Button -->
-        <div class="mt-4">
-            <a href="user.php" class="inline-flex items-center gap-1 border border-outline-variant text-on-surface text-sm font-semibold px-4 h-10 hover:bg-surface-container-low transition-colors rounded">
-                <span class="material-symbols-outlined text-sm">arrow_back</span> Back to Dashboard
+        <div class="flex gap-4 print-hide">
+            <a href="user.php" class="inline-flex items-center justify-center border border-outline-variant text-on-surface font-semibold px-4 h-11 hover:bg-surface-container-low transition-colors rounded-xl">
+                Back to Dashboard
             </a>
         </div>
     </main>
 
-    <!-- Footer -->
+    <!-- Footer Component -->
     <footer class="w-full bg-surface-container border-t border-outline-variant py-4 px-6 mt-12">
-        <div class="flex flex-col md:flex-row justify-between items-center max-w-[1440px] mx-auto w-full gap-2">
-            <span class="text-xs text-on-surface-variant font-semibold uppercase tracking-wider">BrewManager Systems</span>
+        <div class="flex justify-between items-center max-w-[1440px] mx-auto w-full">
             <span class="text-xs text-secondary">© 2026 He&amp;She Coffee. All rights reserved.</span>
         </div>
     </footer>
 
-<script>
-let selectedUserId    = null;
-let selectedShift     = null;
-let selectedWeekStart = null;
+    <script>
+    const csrfToken = '<?php echo $_SESSION['csrf_token']; ?>';
 
-const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    function copyPreviousWeek() {
+        if (!confirm('Are you sure you want to copy the entire schedule from the previous week? This will not overwrite existing schedules.')) {
+            return;
+        }
+        const fd = new FormData();
+        fd.append('action', 'copy_previous_week');
+        fd.append('week_start', '<?php echo $week_start; ?>');
+        fd.append('csrf_token', csrfToken);
 
-function selectEmployee(el) {
-    document.querySelectorAll('.emp-option').forEach(e => {
-        e.classList.remove('bg-primary', 'text-white', 'border-primary');
-        e.classList.add('border-outline-variant');
-        e.querySelector('.emp-avatar').classList.remove('bg-white', 'text-primary');
-        e.querySelector('.emp-check-dot').classList.add('hidden');
-    });
-    el.classList.add('bg-primary', 'text-white', 'border-primary');
-    el.classList.remove('border-outline-variant');
-    el.querySelector('.emp-avatar').classList.add('bg-white', 'text-primary');
-    el.querySelector('.emp-check-dot').classList.remove('hidden');
-    el.querySelector('input').checked = true;
-    selectedUserId = el.dataset.id; // now holds user_id
-}
-
-function filterEmployees(q) {
-    const items = document.querySelectorAll('.emp-option');
-    const lower = q.toLowerCase();
-    items.forEach(el => {
-        el.style.display = el.dataset.name.toLowerCase().includes(lower) ? '' : 'none';
-    });
-}
-
-function selectShift(el) {
-    document.querySelectorAll('.shift-card').forEach(c => {
-        c.classList.remove('border-primary', 'bg-surface-container-low');
-        c.querySelector('.shift-tick').classList.add('hidden');
-    });
-    el.classList.add('border-primary', 'bg-surface-container-low');
-    el.querySelector('.shift-tick').classList.remove('hidden');
-    el.querySelector('input').checked = true;
-    selectedShift = el.dataset.value;
-}
-
-function updateWeekPreview(val) {
-    selectedWeekStart = val;
-    const preview = document.getElementById('weekPreview');
-    if (!val) { preview.innerHTML = ''; return; }
-
-    const d = new Date(val + 'T00:00:00');
-    const day = d.getDay();
-    const diff = (day === 0 ? -6 : 1 - day);
-    d.setDate(d.getDate() + diff);
-
-    preview.innerHTML = '';
-    for (let i = 0; i < 7; i++) {
-        const chip = document.createElement('div');
-        chip.className = 'text-xs font-mono px-2 py-1 rounded border border-outline-variant bg-surface-container text-secondary';
-        const dd = String(d.getDate()).padStart(2,'0');
-        const mm = String(d.getMonth()+1).padStart(2,'0');
-        chip.textContent = DAYS[i] + ' ' + dd + '/' + mm;
-        preview.appendChild(chip);
-        d.setDate(d.getDate() + 1);
+        fetch('manage_schedule.php', {
+            method: 'POST',
+            body: fd
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('Error: ' + data.message);
+            }
+        })
+        .catch(err => {
+            alert('Connection error. Please try again.');
+        });
     }
-}
+    
+    // Toggle popover menu
+    function toggleAddMenu(btn) {
+        // Close all dropdowns
+        document.querySelectorAll('td relative div').forEach(div => {
+            if (div !== btn.nextElementSibling) {
+                div.classList.add('hidden');
+            }
+        });
+        const menu = btn.nextElementSibling;
+        menu.classList.toggle('hidden');
 
-function getFormData(action) {
-    const fd = new FormData();
-    fd.append('action', action);
-    fd.append('user_id', selectedUserId || '');
-    fd.append('week_start', selectedWeekStart || '');
-    if (action === 'assign') fd.append('shift_time', selectedShift || '');
-    return fd;
-}
+        // Setup click outside listener
+        const closeMenu = (e) => {
+            if (!btn.contains(e.target) && !menu.contains(e.target)) {
+                menu.classList.add('hidden');
+                document.removeEventListener('click', closeMenu);
+            }
+        };
+        if (!menu.classList.contains('hidden')) {
+            document.addEventListener('click', closeMenu);
+        }
+    }
 
-function validate(needShift = false) {
-    if (!selectedUserId)    { showToast('error', 'Please select an employee.'); return false; }
-    if (!selectedWeekStart) { showToast('error', 'Please choose a week.'); return false; }
-    if (needShift && !selectedShift) { showToast('error', 'Please select a shift type.'); return false; }
-    return true;
-}
+    // Add barista shift via AJAX
+    function addBaristaToShift(item, userId, date, shiftTime, forceConfirm) {
+        const menu = item.parentElement;
+        const btn = menu.previousElementSibling;
 
-function setLoading(btnId, loading) {
-    const btn = document.getElementById(btnId);
-    if (loading) {
-        btn._orig = btn.innerHTML;
-        btn.innerHTML = '<svg class="animate-spin w-4 h-4 inline-block mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg> Working…';
+        menu.classList.add('hidden');
         btn.disabled = true;
-    } else {
-        btn.innerHTML = btn._orig;
-        btn.disabled = false;
+        btn.innerHTML = '<span>Saving…</span>';
+
+        const fd = new FormData();
+        fd.append('action', 'add_shift');
+        fd.append('user_id', userId);
+        fd.append('date', date);
+        fd.append('shift_time', shiftTime);
+        fd.append('csrf_token', csrfToken);
+        if (forceConfirm) {
+            fd.append('force_confirm', '1');
+        }
+
+        fetch('manage_schedule.php', {
+            method: 'POST',
+            body: fd
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else if (data.availability_warning) {
+                btn.disabled = false;
+                btn.innerHTML = '<span class="material-symbols-outlined text-xs">add</span> Add Barista';
+                if (confirm('⚠️ ' + data.message)) {
+                    addBaristaToShift(item, userId, date, shiftTime, true);
+                }
+            } else {
+                alert('Error: ' + data.message);
+                location.reload();
+            }
+        })
+        .catch(err => {
+            alert('Connection error. Please try again.');
+            location.reload();
+        });
     }
-}
 
-const PHP_URL = location.pathname;
+    // Remove barista shift via AJAX
+    function removeBarista(btn, scheduleId) {
+        if (!confirm('Are you sure you want to remove this barista from this shift?')) {
+            return;
+        }
+        
+        btn.disabled = true;
+        btn.innerHTML = '<span class="material-symbols-outlined text-xs">hourglass_empty</span>';
 
-function assignShifts() {
-    if (!validate(true)) return;
-    const checkedShift = document.querySelector('input[name="shift_time"]:checked');
-    if (checkedShift) selectedShift = checkedShift.value;
-    const empName = document.querySelector('.emp-option.bg-primary .text-sm.font-semibold')?.textContent || '';
-    const shiftLabel = document.querySelector('.shift-card.border-primary .font-semibold')?.textContent || selectedShift;
+        const fd = new FormData();
+        fd.append('action', 'remove_shift');
+        fd.append('schedule_id', scheduleId);
+        fd.append('csrf_token', csrfToken);
 
-    setLoading('btnAssign', true);
-    fetch(PHP_URL, { method: 'POST', body: getFormData('assign') })
-        .then(r => r.text())
-        .then(raw => {
-            setLoading('btnAssign', false);
-            let data;
-            try { data = JSON.parse(raw); }
-            catch(e) { showToast('error', 'Server error: ' + raw.substring(0, 200)); return; }
+        fetch('manage_schedule.php', {
+            method: 'POST',
+            body: fd
+        })
+        .then(response => response.json())
+        .then(data => {
             if (data.success) {
-                showAssignResult(empName, shiftLabel, data);
+                location.reload();
             } else {
-                showToast('error', data.message);
+                alert('Error: ' + data.message);
+                location.reload();
             }
         })
-        .catch(err => { setLoading('btnAssign', false); showToast('error', 'Network error: ' + err); });
-}
+        .catch(err => {
+            alert('Connection error. Please try again.');
+            location.reload();
+        });
+    }
 
-function viewShifts() {
-    window.location.href = 'shifts.php';
-}
-
-function deleteShifts() {
-    if (!validate()) return;
-    if (!confirm('Delete all shifts for this employee this week?')) return;
-    setLoading('btnDelete', true);
-    fetch(PHP_URL, { method: 'POST', body: getFormData('delete') })
-        .then(r => r.text())
-        .then(raw => {
-            setLoading('btnDelete', false);
-            let data;
-            try { data = JSON.parse(raw); }
-            catch(e) { showToast('error', 'Server error: ' + raw.substring(0, 200)); return; }
-            if (data.success) {
-                showToast('success', `Deleted ${data.deleted_count} shift(s) successfully.`);
+    function applyHighlightFilter(username) {
+        const cards = document.querySelectorAll('.barista-card');
+        if (!username) {
+            cards.forEach(card => {
+                card.style.opacity = '1';
+                card.classList.remove('ring-4', 'ring-primary', 'ring-offset-1');
+            });
+            return;
+        }
+        cards.forEach(card => {
+            if (card.getAttribute('data-username') === username) {
+                card.style.opacity = '1';
+                card.classList.add('ring-4', 'ring-primary', 'ring-offset-1');
             } else {
-                showToast('error', 'Delete failed. ' + (data.message || ''));
+                card.style.opacity = '0.35';
+                card.classList.remove('ring-4', 'ring-primary', 'ring-offset-1');
             }
-        })
-        .catch(err => { setLoading('btnDelete', false); showToast('error', 'Network error: ' + err); });
-}
-
-function showAssignResult(empName, shiftLabel, data) {
-    document.getElementById('result-area').innerHTML = `
-    <div class="bg-white border border-outline-variant rounded-xl overflow-hidden">
-        <div class="flex items-center justify-between px-6 py-4 border-b border-outline-variant">
-            <div>
-                <p class="font-semibold text-on-surface">✅ Shifts assigned successfully</p>
-                <p class="text-xs text-secondary mt-0.5">
-                    ${empName ? '<strong>' + escHtml(empName) + '</strong> &nbsp;·&nbsp; ' : ''}
-                    ${data.week_start} → ${data.week_end} &nbsp;·&nbsp; ${data.total_days} days
-                </p>
-            </div>
-            <span class="text-xs font-semibold px-3 py-1 bg-surface-container border border-outline-variant rounded">${escHtml(shiftLabel)}</span>
-        </div>
-        <div class="px-6 py-3 text-xs text-secondary">
-            ${data.inserted_shifts.length > 0 ? `<span class="text-green-700 font-semibold">New:</span> ${data.inserted_shifts.map(s => s.shift_date).join(', ')}` : ''}
-            ${data.inserted_shifts.length > 0 && (data.total_days - data.inserted_shifts.length) > 0 ? ' &nbsp;|&nbsp; ' : ''}
-            ${(data.total_days - data.inserted_shifts.length) > 0 ? `<span class="text-amber-700 font-semibold">Updated:</span> ${data.total_days - data.inserted_shifts.length} existing day(s)` : ''}
-        </div>
-    </div>`;
-}
-
-function showToast(type, msg) {
-    const isSuccess = type === 'success';
-    document.getElementById('result-area').innerHTML = `
-    <div class="flex items-center gap-3 px-4 py-3 rounded border text-sm font-medium
-        ${isSuccess ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}">
-        <span class="material-symbols-outlined text-base">${isSuccess ? 'check_circle' : 'error'}</span>
-        <span>${msg}</span>
-    </div>`;
-}
-
-function escHtml(str) {
-    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-(function setDefaultWeek() {
-    const today = new Date();
-    const day = today.getDay();
-    const diff = day === 0 ? -6 : 1 - day;
-    today.setDate(today.getDate() + diff);
-    const iso = today.toISOString().split('T')[0];
-    document.getElementById('weekStart').value = iso;
-    updateWeekPreview(iso);
-})();
-</script>
+        });
+    }
+    </script>
 </body>
 </html>

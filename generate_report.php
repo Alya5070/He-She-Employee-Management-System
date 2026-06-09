@@ -25,33 +25,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Determine target month (fallback to current year-month if not searched)
 $target_month = !empty($month_filter) ? $month_filter : date('Y-m');
 
-// Fetch data for the report with the option to filter by month (calculates shifts and salaries dynamically)
+// Fetch data for the report with the option to filter by month
 $query = "
 SELECT 
     u.user_id AS employee_id,
     u.full_name AS employee_name,
     u.username AS employee_username,
+    ep.full_name AS profile_name,
     ep.contact AS contact,
     ep.bank_account_number AS bank_account_number,
     ep.email AS employee_email,
-    COALESCE(sched.total_shifts, 0) AS total_shifts,
-    COALESCE(sched.total_shifts, 0) * 28 AS calculated_salary
+    COALESCE(ep.shift_rate, 28.00) AS shift_rate,
+    COALESCE(s.total_shifts, live_sched.shift_count, 0) AS total_shifts,
+    COALESCE(s.calculated_salary, (COALESCE(live_sched.shift_count, 0) * COALESCE(ep.shift_rate, 28.00))) AS calculated_salary,
+    COALESCE(s.bonus, 0) AS bonus,
+    COALESCE(s.deduction, 0) AS deduction,
+    COALESCE(s.status, 'Uncalculated') AS status
 FROM users u
+LEFT JOIN employee_profiles ep ON u.user_id = ep.user_id
+LEFT JOIN salaries s ON u.user_id = s.user_id AND s.month = ?
 LEFT JOIN (
-    SELECT user_id, COUNT(*) AS total_shifts
+    SELECT user_id, COUNT(*) AS shift_count
     FROM schedules
     WHERE DATE_FORMAT(schedules_date, '%Y-%m') = ?
     GROUP BY user_id
-) sched ON u.user_id = sched.user_id
-LEFT JOIN employee_profiles ep ON u.user_id = ep.user_id
+) live_sched ON u.user_id = live_sched.user_id
 WHERE u.role = 'Employee'
 ORDER BY u.username;
 ";
 
 $stmt = $conn->prepare($query);
-$stmt->bind_param("s", $target_month);
+$stmt->bind_param("ss", $target_month, $target_month);
 $stmt->execute();
 $result = $stmt->get_result();
+
+$rows = [];
+$total_spent = 0;
+$total_paid = 0;
+$total_draft = 0;
+
+while ($row = $result->fetch_assoc()) {
+    $row['is_incomplete'] = empty($row['profile_name']) || empty($row['contact']) || empty($row['bank_account_number']) || empty($row['employee_email']);
+    $row['net_pay'] = floatval($row['calculated_salary']) + floatval($row['bonus']) - floatval($row['deduction']);
+    $rows[] = $row;
+    $total_spent += $row['net_pay'];
+    if ($row['status'] === 'Paid') {
+        $total_paid += $row['net_pay'];
+    } else {
+        $total_draft += $row['net_pay'];
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -122,6 +145,7 @@ $result = $stmt->get_result();
                 <nav class="hidden md:flex items-center gap-6 h-full mt-1">
                     <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="user.php">Dashboard</a>
                     <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="manage_schedule.php">Schedules</a>
+                    <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="manage_leaves.php">Leaves</a>
                     <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="manage_salaries.php">Payroll</a>
                     <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="manage_employee_profile.php">Profiles</a>
                 </nav>
@@ -155,32 +179,72 @@ $result = $stmt->get_result();
                 </form>
             </div>
 
-            <?php if (isset($result) && $result->num_rows > 0): ?>
+            <?php if (!empty($rows)): ?>
+                <!-- Financial Overview Summary Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pb-2">
+                    <div class="bg-surface-container-low border border-outline-variant p-4 rounded-xl shadow-sm space-y-1">
+                        <span class="text-xs font-semibold text-secondary uppercase tracking-wider">Projected Roster Cost</span>
+                        <div class="text-xl font-bold text-on-surface font-mono">RM <?php echo number_format($total_spent, 2); ?></div>
+                    </div>
+                    <div class="bg-surface-container-low border border-outline-variant p-4 rounded-xl shadow-sm space-y-1">
+                        <span class="text-xs font-semibold text-secondary uppercase tracking-wider">Confirmed & Paid</span>
+                        <div class="text-xl font-bold text-green-700 font-mono">RM <?php echo number_format($total_paid, 2); ?></div>
+                    </div>
+                    <div class="bg-surface-container-low border border-outline-variant p-4 rounded-xl shadow-sm space-y-1">
+                        <span class="text-xs font-semibold text-secondary uppercase tracking-wider">Pending Drafts</span>
+                        <div class="text-xl font-bold text-amber-700 font-mono">RM <?php echo number_format($total_draft, 2); ?></div>
+                    </div>
+                </div>
+
                 <div class="overflow-x-auto">
                     <table class="w-full text-left border-collapse">
                         <thead>
                             <tr class="border-b border-outline-variant text-xs font-semibold text-secondary uppercase tracking-wider bg-surface-container-low">
                                 <th class="py-3 px-4">Employee Name</th>
-                                <th class="py-3 px-4">Username</th>
                                 <th class="py-3 px-4">Contact</th>
                                 <th class="py-3 px-4">Bank Account</th>
-                                <th class="py-3 px-4">Email</th>
+                                <th class="py-3 px-4">Shift Rate</th>
                                 <th class="py-3 px-4 text-center">Total Shifts</th>
-                                <th class="py-3 px-4 text-right">Calculated Salary (RM)</th>
+                                <th class="py-3 px-4 text-right">Base Salary (RM)</th>
+                                <th class="py-3 px-4 text-right">Bonus</th>
+                                <th class="py-3 px-4 text-right">Deduction</th>
+                                <th class="py-3 px-4 text-right">Net Pay (RM)</th>
+                                <th class="py-3 px-4 text-center">Status</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php while ($row = $result->fetch_assoc()): ?>
+                            <?php foreach ($rows as $row): ?>
                                 <tr class="border-b border-outline-variant hover:bg-surface-container-low transition-colors text-sm">
-                                    <td class="py-3 px-4 font-medium"><?php echo htmlspecialchars($row['employee_name']); ?></td>
-                                    <td class="py-3 px-4 font-semibold"><?php echo htmlspecialchars($row['employee_username']); ?></td>
+                                    <td class="py-3 px-4">
+                                        <div class="font-semibold text-on-surface flex items-center gap-1.5">
+                                            <?php echo htmlspecialchars($row['employee_name']); ?>
+                                            <?php if ($row['is_incomplete']): ?>
+                                                <span class="material-symbols-outlined text-red-600 text-base" title="Incomplete Profile">warning</span>
+                                            <?php endif; ?>
+                                        </div>
+                                        <div class="text-[10px] text-secondary font-mono">@<?php echo htmlspecialchars($row['employee_username']); ?></div>
+                                    </td>
                                     <td class="py-3 px-4"><?php echo htmlspecialchars($row['contact'] ? $row['contact'] : 'N/A'); ?></td>
                                     <td class="py-3 px-4 font-mono"><?php echo htmlspecialchars($row['bank_account_number'] ? $row['bank_account_number'] : 'N/A'); ?></td>
-                                    <td class="py-3 px-4"><?php echo htmlspecialchars($row['employee_email'] ? $row['employee_email'] : 'N/A'); ?></td>
+                                    <td class="py-3 px-4 font-mono text-xs">RM <?php echo number_format($row['shift_rate'], 2); ?></td>
                                     <td class="py-3 px-4 text-center font-semibold"><?php echo $row['total_shifts']; ?></td>
                                     <td class="py-3 px-4 text-right font-mono font-semibold">RM <?php echo number_format($row['calculated_salary'], 2); ?></td>
+                                    <td class="py-3 px-4 text-right font-mono text-green-700"><?php echo $row['bonus'] > 0 ? '+RM '.number_format($row['bonus'], 2) : '—'; ?></td>
+                                    <td class="py-3 px-4 text-right font-mono text-red-700"><?php echo $row['deduction'] > 0 ? '-RM '.number_format($row['deduction'], 2) : '—'; ?></td>
+                                    <td class="py-3 px-4 text-right font-mono font-bold">RM <?php echo number_format($row['net_pay'], 2); ?></td>
+                                    <td class="py-3 px-4 text-center">
+                                        <?php if ($row['is_incomplete']): ?>
+                                            <span class="px-2 py-0.5 bg-red-100 text-red-800 text-[10px] font-bold rounded-xl">Profile Incomplete</span>
+                                        <?php elseif ($row['status'] === 'Paid'): ?>
+                                            <span class="px-2 py-0.5 bg-green-100 text-green-800 text-[10px] font-bold rounded-xl">Paid</span>
+                                        <?php elseif ($row['status'] === 'Draft'): ?>
+                                            <span class="px-2 py-0.5 bg-blue-100 text-blue-800 text-[10px] font-bold rounded-xl">Draft</span>
+                                        <?php else: ?>
+                                            <span class="px-2 py-0.5 bg-neutral-100 text-neutral-500 text-[10px] font-bold rounded-xl">Uncalculated</span>
+                                        <?php endif; ?>
+                                    </td>
                                 </tr>
-                            <?php endwhile; ?>
+                            <?php endforeach; ?>
                         </tbody>
                     </table>
                 </div>

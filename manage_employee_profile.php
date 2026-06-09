@@ -12,7 +12,7 @@ $username = $_SESSION['username'];
 
 // Fetch all employee profiles (if manager)
 if ($_SESSION['role'] == 'Manager') {
-    $sql = "SELECT * FROM employee_profiles";
+    $sql = "SELECT ep.*, COALESCE((SELECT COUNT(*) FROM schedules s WHERE s.user_id = ep.user_id), 0) * 5 AS hours_worked FROM employee_profiles ep";
     $result = $conn->query($sql);
 } else {
     // Fetch only the current employee's profile (if employee)
@@ -40,8 +40,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     if ($_SESSION['role'] == 'Manager') {
         // If manager, allow editing any employee profile
         $employee_id = intval($_POST['employee_id']); // Employee ID to update
-        $stmt = $conn->prepare("UPDATE employee_profiles SET full_name = ?, contact = ?, bank_account_number = ?, email = ? WHERE id = ?");
-        $stmt->bind_param("ssssi", $full_name, $contact, $bank_account_number, $email, $employee_id);
+        $shift_rate = isset($_POST['shift_rate']) ? floatval($_POST['shift_rate']) : 28.00;
+        $stmt = $conn->prepare("UPDATE employee_profiles SET full_name = ?, contact = ?, bank_account_number = ?, email = ?, shift_rate = ? WHERE id = ?");
+        $stmt->bind_param("ssssdi", $full_name, $contact, $bank_account_number, $email, $shift_rate, $employee_id);
     } else {
         // If employee, only update their own profile
         $stmt = $conn->prepare("UPDATE employee_profiles SET full_name = ?, contact = ?, bank_account_number = ?, email = ? WHERE user_id = (SELECT user_id FROM users WHERE username = ?)");
@@ -126,6 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="user.php">Dashboard</a>
                     <?php if ($_SESSION['role'] == 'Manager'): ?>
                         <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="manage_schedule.php">Schedules</a>
+                        <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="manage_leaves.php">Leaves</a>
                         <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="manage_salaries.php">Payroll</a>
                         <a class="text-primary border-b-2 border-primary pb-1 font-semibold h-full flex items-center" href="manage_employee_profile.php">Profiles</a>
                     <?php else: ?>
@@ -164,6 +166,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                 <th class="py-3 px-4">Contact Info</th>
                                 <th class="py-3 px-4">Bank Account</th>
                                 <th class="py-3 px-4">Email</th>
+                                <th class="py-3 px-4">Hours Worked</th>
+                                <th class="py-3 px-4">Shift Rate</th>
                                 <th class="py-3 px-4">Action</th>
                             </tr>
                         </thead>
@@ -176,6 +180,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                         <td class="py-3 px-4"><?php echo htmlspecialchars($row['contact'] ? $row['contact'] : 'N/A'); ?></td>
                                         <td class="py-3 px-4 font-mono"><?php echo htmlspecialchars($row['bank_account_number'] ? $row['bank_account_number'] : 'N/A'); ?></td>
                                         <td class="py-3 px-4"><?php echo htmlspecialchars($row['email'] ? $row['email'] : 'N/A'); ?></td>
+                                        <td class="py-3 px-4 font-mono"><?php echo number_format($row['hours_worked'], 1); ?> hrs</td>
+                                        <td class="py-3 px-4 font-mono">RM<?php echo number_format($row['shift_rate'], 2); ?></td>
                                         <td class="py-3 px-4">
                                             <a href="manage_employee_profile.php?edit=<?php echo $row['id']; ?>" class="text-xs bg-primary-container text-white px-2.5 py-1 hover:bg-neutral-800 transition-colors rounded-xl">Edit</a>
                                         </td>
@@ -204,6 +210,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     $profile = $result ? $result->fetch_assoc() : null;
                     $stmt->close();
                 }
+                $shifts_count = 0;
+                if (isset($profile['user_id'])) {
+                    $stmt_s = $conn->prepare("SELECT COUNT(*) AS count FROM schedules WHERE user_id = ?");
+                    $stmt_s->bind_param("i", $profile['user_id']);
+                    $stmt_s->execute();
+                    $shifts_count = $stmt_s->get_result()->fetch_assoc()['count'];
+                    $stmt_s->close();
+                }
+                $hours_worked_computed = $shifts_count * 5;
                 ?>
                 
                 <div class="max-w-[600px] mx-auto border border-outline-variant p-6 rounded-xl bg-surface-container-low space-y-4">
@@ -231,6 +246,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                             <label class="block text-xs font-semibold text-secondary uppercase tracking-wider" for="email">EMAIL</label>
                             <input class="w-full bg-white border border-outline-variant px-4 py-2 focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-sm rounded-xl" type="email" id="email" name="email" value="<?php echo isset($profile['email']) ? htmlspecialchars($profile['email']) : ''; ?>" placeholder="Email">
                         </div>
+
+                        <div class="space-y-1">
+                            <label class="block text-xs font-semibold text-secondary uppercase tracking-wider">HOURS WORKED (Computed)</label>
+                            <input class="w-full bg-neutral-100 border border-outline-variant px-4 py-2 text-sm rounded-xl cursor-not-allowed text-secondary" type="text" readonly value="<?php echo $hours_worked_computed; ?> hours (<?php echo $shifts_count; ?> shifts scheduled)">
+                            <span class="text-[10px] text-secondary">Automatically computed from scheduled rosters (5 hours/shift).</span>
+                        </div>
+
+                        <?php if ($_SESSION['role'] == 'Manager'): ?>
+                        <div class="space-y-1">
+                            <label class="block text-xs font-semibold text-secondary uppercase tracking-wider" for="shift_rate">SHIFT RATE (RM)</label>
+                            <input class="w-full bg-white border border-outline-variant px-4 py-2 focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-sm rounded-xl" type="number" step="0.01" id="shift_rate" name="shift_rate" value="<?php echo isset($profile['shift_rate']) ? htmlspecialchars($profile['shift_rate']) : '28.00'; ?>" required placeholder="28.00">
+                        </div>
+                        <?php endif; ?>
 
                         <button type="submit" class="w-full bg-primary text-white font-semibold h-11 flex items-center justify-center hover:bg-neutral-800 transition-colors rounded-xl">
                             <?php echo isset($profile) ? 'Update Profile' : 'Create Profile'; ?>

@@ -69,6 +69,22 @@ $stmt1->close();
     $emp_shift_res = $stmt4->get_result();
     $emp_total_shifts = $emp_shift_res ? $emp_shift_res->fetch_assoc()['total'] : 0;
     $stmt4->close();
+
+    // Fetch latest monthly salary status
+    $latest_sal = null;
+    if ($profile) {
+        $stmt_latest = $conn->prepare("
+            SELECT month, total_shifts, calculated_salary, status
+            FROM salaries
+            WHERE user_id = ?
+            ORDER BY month DESC
+            LIMIT 1
+        ");
+        $stmt_latest->bind_param("i", $profile['user_id']);
+        $stmt_latest->execute();
+        $latest_sal = $stmt_latest->get_result()->fetch_assoc();
+        $stmt_latest->close();
+    }
 }
 ?>
 
@@ -136,10 +152,12 @@ $stmt1->close();
                     <a class="text-primary border-b-2 border-primary pb-1 font-semibold h-full flex items-center" href="user.php">Dashboard</a>
                     <?php if ($role == 'Manager'): ?>
                         <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="manage_schedule.php">Schedules</a>
+                        <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="manage_leaves.php">Leaves</a>
                         <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="manage_salaries.php">Payroll</a>
                         <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="manage_employee_profile.php">Profiles</a>
                     <?php else: ?>
                         <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="my_schedule.php">My Schedule</a>
+                        <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="my_payroll.php">My Payroll</a>
                         <a class="text-secondary hover:text-primary transition-colors h-full flex items-center" href="my_profile.php">My Profile</a>
                     <?php endif; ?>
                 </nav>
@@ -215,7 +233,7 @@ $stmt1->close();
                         </div>
                         <div>
                             <h3 class="font-bold text-lg text-on-surface">Manage Profiles</h3>
-                            <p class="text-sm text-secondary">Manage employee records, emails, bank accounts, and contact details.</p>
+                            <p class="text-sm text-secondary">View and edit employee details, contact info, and bank accounts.</p>
                         </div>
                     </div>
                     <span class="material-symbols-outlined text-outline group-hover:translate-x-1 transition-transform">chevron_right</span>
@@ -228,7 +246,7 @@ $stmt1->close();
                         </div>
                         <div>
                             <h3 class="font-bold text-lg text-on-surface">Manage Shift Schedules</h3>
-                            <p class="text-sm text-secondary">Review employee shift allocations, modify or delete calendar dates.</p>
+                            <p class="text-sm text-secondary">Schedule barista shifts and modify the weekly roster.</p>
                         </div>
                     </div>
                     <span class="material-symbols-outlined text-outline group-hover:translate-x-1 transition-transform">chevron_right</span>
@@ -241,7 +259,7 @@ $stmt1->close();
                         </div>
                         <div>
                             <h3 class="font-bold text-lg text-on-surface">Manage Salaries</h3>
-                            <p class="text-sm text-secondary">Process monthly payroll and compute total compensation by shift totals.</p>
+                            <p class="text-sm text-secondary">Calculate monthly pay and lock payroll runs.</p>
                         </div>
                     </div>
                     <span class="material-symbols-outlined text-outline group-hover:translate-x-1 transition-transform">chevron_right</span>
@@ -254,7 +272,20 @@ $stmt1->close();
                         </div>
                         <div>
                             <h3 class="font-bold text-lg text-on-surface">Generate Reports</h3>
-                            <p class="text-sm text-secondary">Export employee roster payroll databases and print monthly sheets.</p>
+                            <p class="text-sm text-secondary">View cost totals and print the monthly salary report.</p>
+                        </div>
+                    </div>
+                    <span class="material-symbols-outlined text-outline group-hover:translate-x-1 transition-transform">chevron_right</span>
+                </a>
+                <!-- Leave Approvals -->
+                <a class="group bg-white border border-outline-variant p-6 flex items-center justify-between hover:bg-surface-container-low transition-all duration-200 rounded-xl md:col-span-2" href="manage_leaves.php">
+                    <div class="flex items-center gap-4">
+                        <div class="w-16 h-16 bg-surface-container flex items-center justify-center border border-outline-variant rounded-xl">
+                            <span class="material-symbols-outlined text-[32px] text-secondary group-hover:text-primary transition-colors">event_busy</span>
+                        </div>
+                        <div>
+                            <h3 class="font-bold text-lg text-on-surface">Leave Approvals</h3>
+                            <p class="text-sm text-secondary">Review and approve or reject employee leave requests.</p>
                         </div>
                     </div>
                     <span class="material-symbols-outlined text-outline group-hover:translate-x-1 transition-transform">chevron_right</span>
@@ -262,69 +293,138 @@ $stmt1->close();
             </div>
 
         <?php elseif ($role == 'Employee'): ?>
-            <!-- Employee Bento Layout -->
-            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                <!-- Left Panel: My Summary -->
-                <section class="lg:col-span-6 bg-white border border-outline-variant p-6 rounded-xl space-y-6">
-                    <h2 class="font-bold text-xl text-on-surface border-b border-outline-variant pb-2">Shift Overview</h2>
-                    
-                    <div class="grid grid-cols-2 gap-4">
-                        <div class="bg-surface-container-low p-4 rounded-xl">
-                            <span class="text-xs font-semibold text-secondary uppercase block">TOTAL SHIFTS</span>
-                            <span class="text-2xl font-bold text-primary block mt-1"><?php echo $emp_total_shifts; ?></span>
-                        </div>
-                        <div class="bg-surface-container-low p-4 rounded-xl">
-                            <span class="text-xs font-semibold text-secondary uppercase block">HOURS WORKED</span>
-                            <span class="text-2xl font-bold text-on-surface block mt-1"><?php echo $profile ? $profile['hours_worked'] : '0'; ?> hrs</span>
+            <!-- Employee Stats & Overview Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <!-- Shift Overview -->
+                <div class="bg-white border border-outline-variant p-6 flex flex-col justify-between min-h-[140px] rounded-xl shadow-sm">
+                    <div>
+                        <span class="text-xs font-semibold text-secondary uppercase tracking-wider">Scheduled Shifts</span>
+                        <div class="flex items-baseline gap-1 mt-1">
+                            <span class="text-3xl font-bold text-primary"><?php echo $emp_total_shifts; ?></span>
+                            <span class="text-sm text-secondary">total shifts</span>
                         </div>
                     </div>
-
-                    <div class="pt-4 flex flex-col gap-3">
-                        <a href="my_schedule.php" class="w-full bg-primary hover:bg-neutral-800 text-white font-semibold h-12 flex items-center justify-center rounded-xl transition-colors duration-200">
-                            Claim or View Shifts
-                        </a>
-                        <a href="my_profile.php" class="w-full border border-outline-variant text-on-surface hover:bg-surface-container-low font-semibold h-12 flex items-center justify-center rounded-xl transition-colors duration-200">
-                            View My Profile
-                        </a>
+                    <div class="flex items-center gap-1.5 mt-4">
+                        <span class="material-symbols-outlined text-xs text-primary">calendar_today</span>
+                        <span class="text-xs text-on-surface-variant"><?php echo $profile ? $profile['hours_worked'] : '0'; ?> hours logged</span>
                     </div>
-                </section>
+                </div>
 
-                <!-- Right Panel: Profile Setup Reminder / Form -->
-                <section class="lg:col-span-6 bg-white border border-outline-variant p-6 rounded-xl space-y-6">
-                    <h2 class="font-bold text-xl text-on-surface border-b border-outline-variant pb-2">Profile Actions</h2>
-                    
-                    <?php if ($profile): ?>
-                        <div class="space-y-3">
-                            <div class="flex justify-between py-2 border-b border-outline-variant">
-                                <span class="text-secondary text-sm">Full Name</span>
-                                <span class="font-semibold text-sm"><?php echo htmlspecialchars($profile['full_name']); ?></span>
+                <!-- Latest Payroll -->
+                <div class="bg-white border border-outline-variant p-6 flex flex-col justify-between min-h-[140px] rounded-xl shadow-sm">
+                    <div>
+                        <span class="text-xs font-semibold text-secondary uppercase tracking-wider">Latest Pay Status</span>
+                        <?php if ($latest_sal): ?>
+                            <div class="flex items-baseline gap-1 mt-1">
+                                <span class="text-2xl font-bold text-primary">RM <?php echo number_format($latest_sal['calculated_salary'], 2); ?></span>
                             </div>
-                            <div class="flex justify-between py-2 border-b border-outline-variant">
-                                <span class="text-secondary text-sm">Email</span>
-                                <span class="font-semibold text-sm"><?php echo htmlspecialchars($profile['email']); ?></span>
-                            </div>
-                            <div class="flex justify-between py-2 border-b border-outline-variant">
-                                <span class="text-secondary text-sm">Contact Number</span>
-                                <span class="font-semibold text-sm"><?php echo htmlspecialchars($profile['contact'] ? $profile['contact'] : 'Not provided'); ?></span>
-                            </div>
-                            <div class="flex justify-between py-2 border-b border-outline-variant">
-                                <span class="text-secondary text-sm">Bank Account</span>
-                                <span class="font-semibold text-sm"><?php echo htmlspecialchars($profile['bank_account_number']); ?></span>
-                            </div>
-                        </div>
-                    <?php else: ?>
-                        <div class="bg-yellow-50 border border-yellow-200 p-4 text-yellow-800 rounded-xl">
-                            <p class="text-sm font-semibold mb-1">Profile Incomplete!</p>
-                            <p class="text-xs">You have not completed your contact info or bank details. Managers require this to process salary payments.</p>
-                        </div>
-                    <?php endif; ?>
-
-                    <div class="pt-4">
-                        <a href="update_profile.php" class="w-full bg-primary-container text-white hover:bg-neutral-800 font-semibold h-12 flex items-center justify-center rounded-xl transition-colors duration-200">
-                            Update Personal Details
-                        </a>
+                        <?php else: ?>
+                            <div class="text-sm font-semibold text-secondary mt-1">No payments processed</div>
+                        <?php endif; ?>
                     </div>
-                </section>
+                    <div class="flex items-center gap-1.5 mt-4">
+                        <?php if ($latest_sal): ?>
+                            <span class="w-2 h-2 rounded-full <?php echo $latest_sal['status'] === 'Paid' ? 'bg-green-500' : 'bg-blue-500'; ?>"></span>
+                            <span class="text-xs text-on-surface-variant font-mono"><?php echo date('F Y', strtotime($latest_sal['month'] . '-01')); ?> (<?php echo $latest_sal['status']; ?>)</span>
+                        <?php else: ?>
+                            <span class="material-symbols-outlined text-xs text-secondary">payments</span>
+                            <span class="text-xs text-on-surface-variant">Check Payroll Portal</span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <!-- Profile Completion Status -->
+                <div class="bg-white border border-outline-variant p-6 flex flex-col justify-between min-h-[140px] rounded-xl shadow-sm">
+                    <div>
+                        <span class="text-xs font-semibold text-secondary uppercase tracking-wider">Profile Status</span>
+                        <div class="flex items-baseline gap-1 mt-1">
+                            <span class="text-lg font-bold <?php echo $profile ? 'text-green-700' : 'text-amber-700'; ?>">
+                                <?php echo $profile ? 'Active & Complete' : 'Needs Setup'; ?>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-1.5 mt-4">
+                        <span class="material-symbols-outlined text-xs <?php echo $profile ? 'text-green-700' : 'text-amber-700'; ?>">
+                            <?php echo $profile ? 'check_circle' : 'warning'; ?>
+                        </span>
+                        <span class="text-xs text-on-surface-variant">
+                            <?php echo $profile ? 'Bank details registered' : 'Add details to receive payouts'; ?>
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Employee Quick-Action Modules Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- My Schedule -->
+                <a class="group bg-white border border-outline-variant p-6 flex items-center justify-between hover:bg-surface-container-low transition-all duration-200 rounded-xl shadow-sm" href="my_schedule.php">
+                    <div class="flex items-center gap-4">
+                        <div class="w-16 h-16 bg-surface-container flex items-center justify-center border border-outline-variant rounded-xl">
+                            <span class="material-symbols-outlined text-[32px] text-secondary group-hover:text-primary transition-colors">calendar_today</span>
+                        </div>
+                        <div>
+                            <h3 class="font-bold text-lg text-on-surface">My Schedule</h3>
+                            <p class="text-sm text-secondary">View weekly shifts and check coworker coverage.</p>
+                        </div>
+                    </div>
+                    <span class="material-symbols-outlined text-outline group-hover:translate-x-1 transition-transform">chevron_right</span>
+                </a>
+
+                <!-- Leave Requests -->
+                <a class="group bg-white border border-outline-variant p-6 flex items-center justify-between hover:bg-surface-container-low transition-all duration-200 rounded-xl shadow-sm" href="request_leave.php">
+                    <div class="flex items-center gap-4">
+                        <div class="w-16 h-16 bg-surface-container flex items-center justify-center border border-outline-variant rounded-xl">
+                            <span class="material-symbols-outlined text-[32px] text-secondary group-hover:text-primary transition-colors">event_busy</span>
+                        </div>
+                        <div>
+                            <h3 class="font-bold text-lg text-on-surface">Request Leave</h3>
+                            <p class="text-sm text-secondary">Submit day-off requests and track manager approvals.</p>
+                        </div>
+                    </div>
+                    <span class="material-symbols-outlined text-outline group-hover:translate-x-1 transition-transform">chevron_right</span>
+                </a>
+
+                <!-- Availability Preferences -->
+                <a class="group bg-white border border-outline-variant p-6 flex items-center justify-between hover:bg-surface-container-low transition-all duration-200 rounded-xl shadow-sm" href="set_availability.php">
+                    <div class="flex items-center gap-4">
+                        <div class="w-16 h-16 bg-surface-container flex items-center justify-center border border-outline-variant rounded-xl">
+                            <span class="material-symbols-outlined text-[32px] text-secondary group-hover:text-primary transition-colors">edit_calendar</span>
+                        </div>
+                        <div>
+                            <h3 class="font-bold text-lg text-on-surface">Set Availability</h3>
+                            <p class="text-sm text-secondary">Define preferred weekly work days and time slots.</p>
+                        </div>
+                    </div>
+                    <span class="material-symbols-outlined text-outline group-hover:translate-x-1 transition-transform">chevron_right</span>
+                </a>
+
+                <!-- My Payroll Portal -->
+                <a class="group bg-white border border-outline-variant p-6 flex items-center justify-between hover:bg-surface-container-low transition-all duration-200 rounded-xl shadow-sm" href="my_payroll.php">
+                    <div class="flex items-center gap-4">
+                        <div class="w-16 h-16 bg-surface-container flex items-center justify-center border border-outline-variant rounded-xl">
+                            <span class="material-symbols-outlined text-[32px] text-secondary group-hover:text-primary transition-colors">receipt_long</span>
+                        </div>
+                        <div>
+                            <h3 class="font-bold text-lg text-on-surface">My Payroll Portal</h3>
+                            <p class="text-sm text-secondary">Review monthly payslips, bonuses, deductions, and payout history.</p>
+                        </div>
+                    </div>
+                    <span class="material-symbols-outlined text-outline group-hover:translate-x-1 transition-transform">chevron_right</span>
+                </a>
+
+                <!-- My Profile Settings -->
+                <a class="group bg-white border border-outline-variant p-6 flex items-center justify-between hover:bg-surface-container-low transition-all duration-200 rounded-xl shadow-sm md:col-span-2" href="my_profile.php">
+                    <div class="flex items-center gap-4">
+                        <div class="w-16 h-16 bg-surface-container flex items-center justify-center border border-outline-variant rounded-xl">
+                            <span class="material-symbols-outlined text-[32px] text-secondary group-hover:text-primary transition-colors">person</span>
+                        </div>
+                        <div>
+                            <h3 class="font-bold text-lg text-on-surface">My Profile & Bank Details</h3>
+                            <p class="text-sm text-secondary">Manage contact numbers, emails, and bank details for salary disbursements.</p>
+                        </div>
+                    </div>
+                    <span class="material-symbols-outlined text-outline group-hover:translate-x-1 transition-transform">chevron_right</span>
+                </a>
             </div>
         <?php endif; ?>
     </main>
