@@ -63,8 +63,8 @@ $stmt1->close();
     $profile = $profile_res ? $profile_res->fetch_assoc() : null;
     $stmt3->close();
 
-    $stmt4 = $conn->prepare("SELECT COUNT(*) AS total FROM schedules WHERE employee_username = ?");
-    $stmt4->bind_param("s", $username);
+    $stmt4 = $conn->prepare("SELECT COUNT(*) AS total FROM schedules WHERE user_id= ?");
+    $stmt4->bind_param("s", $_SESSION['user_id']);
     $stmt4->execute();
     $emp_shift_res = $stmt4->get_result();
     $emp_total_shifts = $emp_shift_res ? $emp_shift_res->fetch_assoc()['total'] : 0;

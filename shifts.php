@@ -2,8 +2,6 @@
 include 'db_connect.php';
 ob_start();
 
- // loads $conn; any HTML it echoes goes into the buffer
-
 /* ── AJAX handler ── */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
@@ -12,24 +10,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         ob_end_clean();
         header('Content-Type: application/json');
 
-        $employeeUsername = isset($_POST['employee_username']) && $_POST['employee_username'] !== ''
-                  ? trim($_POST['employee_username'])
+        $userId = isset($_POST['user_id']) && $_POST['user_id'] !== ''
+                  ? (int)trim($_POST['user_id'])
                   : null;
 
-        $sql    = "SELECT s.id AS shift_id, u.id AS user_id, u.username AS employee_username, u.full_name, s.schedules_date AS shift_date, s.schedules_time AS shift_time
+        $sql    = "SELECT s.id AS shift_id, u.user_id, u.username, u.full_name,
+                          s.schedules_date AS shift_date, s.schedules_time AS shift_time
                    FROM schedules s
-                   JOIN users u ON s.employee_username = u.username
+                   JOIN users u ON s.user_id = u.user_id
                    WHERE u.role = 'Employee'";
         $params = [];
         $types  = '';
 
-        if ($employeeUsername !== null) {
-            $sql   .= " AND s.employee_username = ?";
-            $params[] = $employeeUsername;
-            $types .= 's';
+        if ($userId !== null) {
+            $sql     .= " AND s.user_id = ?";
+            $params[] = $userId;
+            $types   .= 'i';
         }
 
-        $sql .= " ORDER BY s.shift_date ASC, u.full_name, s.shift_time";
+        $sql .= " ORDER BY s.schedules_date ASC, u.full_name, s.schedules_time";
 
         $stmt = mysqli_prepare($conn, $sql);
         if ($stmt === false) {
@@ -59,7 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         ob_end_clean();
         header('Content-Type: application/json');
 
-        $shiftId   = isset($_POST['shift_id'])  ? (int)$_POST['shift_id']   : 0;
+        $shiftId   = isset($_POST['shift_id'])  ? (int)$_POST['shift_id']    : 0;
         $shiftDate = isset($_POST['shift_date']) ? trim($_POST['shift_date']) : '';
         $shiftTime = isset($_POST['shift_time']) ? trim($_POST['shift_time']) : '';
 
@@ -96,14 +95,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
 
         $stmt = mysqli_prepare($conn,
-            "SELECT s.id AS shift_id, u.id AS user_id, u.username AS employee_username, u.full_name, s.schedules_date AS shift_date, s.schedules_time AS shift_time
+            "SELECT s.id AS shift_id, u.user_id, u.username, u.full_name,
+                    s.schedules_date AS shift_date, s.schedules_time AS shift_time
              FROM schedules s
-             JOIN users u ON s.employee_username = u.username
+             JOIN users u ON s.user_id = u.user_id
              WHERE s.id = ?");
         mysqli_stmt_bind_param($stmt, 'i', $shiftId);
         mysqli_stmt_execute($stmt);
         $result = mysqli_stmt_get_result($stmt);
-        $row = mysqli_fetch_assoc($result);
+        $row    = mysqli_fetch_assoc($result);
         mysqli_stmt_close($stmt);
 
         if ($row) {
@@ -140,12 +140,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 }
 
-/* ── Normal page load: flush buffered header.php output ── */
+/* ── Normal page load ── */
 ob_end_flush();
 
 /* ── Employee list for the dropdown ── */
 $emp_result = mysqli_query($conn,
-    "SELECT id, username, full_name FROM users WHERE role = 'Employee' ORDER BY full_name"
+    "SELECT user_id, username, full_name FROM users WHERE role = 'Employee' ORDER BY full_name"
 );
 $employees = [];
 while ($row = mysqli_fetch_assoc($emp_result)) {
@@ -168,7 +168,6 @@ while ($row = mysqli_fetch_assoc($emp_result)) {
         }
         body { font-family: 'Inter', sans-serif; }
 
-        /* Spinner */
         @keyframes spin { to { transform: rotate(360deg); } }
         .spinner {
             width: 20px; height: 20px;
@@ -179,7 +178,6 @@ while ($row = mysqli_fetch_assoc($emp_result)) {
             display: inline-block;
         }
 
-        /* Row fade-out on delete */
         @keyframes fadeSlideOut {
             to { opacity: 0; transform: translateX(16px); }
         }
@@ -187,7 +185,6 @@ while ($row = mysqli_fetch_assoc($emp_result)) {
             animation: fadeSlideOut .3s ease forwards;
         }
 
-        /* Modal open/close */
         .modal-backdrop { display: none; }
         .modal-backdrop.open { display: flex; }
     </style>
@@ -251,7 +248,6 @@ while ($row = mysqli_fetch_assoc($emp_result)) {
 <!-- ══ Main ══ -->
 <main class="max-w-[1080px] mx-auto px-6 py-8 flex-grow w-full">
 
-    <!-- Page Header -->
     <section class="mb-6">
         <h1 class="text-2xl font-bold text-on-surface">All Employee Shifts</h1>
         <p class="text-sm text-secondary mt-1">View, filter, edit and delete shifts across all employees</p>
@@ -271,7 +267,7 @@ while ($row = mysqli_fetch_assoc($emp_result)) {
                         class="w-full h-10 px-4 border border-outline-variant bg-surface text-sm text-on-surface focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all duration-200 rounded">
                     <option value="">All Employees</option>
                     <?php foreach ($employees as $emp): ?>
-                        <option value="<?= htmlspecialchars($emp['username']) ?>">
+                        <option value="<?= htmlspecialchars($emp['user_id']) ?>">
                             <?= htmlspecialchars($emp['full_name']) ?>
                         </option>
                     <?php endforeach; ?>
@@ -311,7 +307,6 @@ while ($row = mysqli_fetch_assoc($emp_result)) {
 
     <!-- Shifts Container -->
     <div id="shiftsContainer">
-        <!-- loading state -->
         <div class="bg-white border border-outline-variant rounded-xl p-12 flex flex-col items-center gap-3 text-secondary">
             <div class="spinner"></div>
             <p class="text-sm font-medium">Loading shifts…</p>
@@ -342,7 +337,6 @@ while ($row = mysqli_fetch_assoc($emp_result)) {
     <div class="bg-white border border-outline-variant rounded-xl w-full max-w-md mx-4 shadow-xl"
          onclick="event.stopPropagation()">
 
-        <!-- Header -->
         <div class="flex items-center justify-between px-6 py-4 border-b border-outline-variant">
             <span class="font-semibold text-on-surface flex items-center gap-2">
                 <span class="material-symbols-outlined text-base">edit_calendar</span>
@@ -354,11 +348,9 @@ while ($row = mysqli_fetch_assoc($emp_result)) {
             </button>
         </div>
 
-        <!-- Body -->
         <div class="px-6 py-5 space-y-4">
             <input type="hidden" id="editShiftId">
 
-            <!-- Employee (read-only) -->
             <div>
                 <label class="block text-xs font-semibold text-secondary uppercase tracking-wider mb-1.5">Employee</label>
                 <div id="editFullName"
@@ -367,14 +359,12 @@ while ($row = mysqli_fetch_assoc($emp_result)) {
                 </div>
             </div>
 
-            <!-- Date -->
             <div>
                 <label for="editDate" class="block text-xs font-semibold text-secondary uppercase tracking-wider mb-1.5">Shift Date</label>
                 <input type="date" id="editDate"
                        class="w-full h-10 px-4 border border-outline-variant bg-surface text-sm text-on-surface focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all duration-200 rounded font-mono">
             </div>
 
-            <!-- Shift Type -->
             <div>
                 <label class="block text-xs font-semibold text-secondary uppercase tracking-wider mb-1.5">Shift Type</label>
                 <div class="grid grid-cols-3 gap-2">
@@ -396,7 +386,6 @@ while ($row = mysqli_fetch_assoc($emp_result)) {
                 </div>
             </div>
 
-            <!-- Error -->
             <div id="editError"
                  class="hidden flex items-center gap-2 px-4 py-3 rounded border text-sm font-medium bg-red-50 border-red-200 text-red-800">
                 <span class="material-symbols-outlined text-base">error</span>
@@ -404,7 +393,6 @@ while ($row = mysqli_fetch_assoc($emp_result)) {
             </div>
         </div>
 
-        <!-- Footer -->
         <div class="flex gap-3 justify-end px-6 py-4 border-t border-outline-variant">
             <button onclick="closeEditModal()"
                     class="h-10 px-5 border border-outline-variant text-on-surface text-sm font-semibold hover:bg-surface-container-low transition-colors rounded">
@@ -448,7 +436,6 @@ while ($row = mysqli_fetch_assoc($emp_result)) {
 <script>
 const PHP_URL = '<?= htmlspecialchars(basename(__FILE__)) ?>';
 
-/* ── helpers ── */
 function esc(str) {
     return String(str)
         .replace(/&/g,'&amp;').replace(/</g,'&lt;')
@@ -478,7 +465,6 @@ function getInitials(name) {
     return name.split(' ').map(w => w[0] || '').join('').toUpperCase().slice(0, 2);
 }
 
-/* ── render table ── */
 function renderShifts(shifts) {
     const container = document.getElementById('shiftsContainer');
 
@@ -560,7 +546,6 @@ function updateStats(shifts) {
     document.getElementById('statsRow').classList.remove('hidden');
 }
 
-/* ── shared fetch helper ── */
 function postJSON(formData) {
     return fetch(PHP_URL, { method: 'POST', body: formData })
         .then(r => {
@@ -577,8 +562,8 @@ function postJSON(formData) {
 
 /* ── filter ── */
 function filterShifts() {
-    const btn   = document.getElementById('filterBtn');
-    const empUsername = document.getElementById('employeeFilter').value;
+    const btn    = document.getElementById('filterBtn');
+    const userId = document.getElementById('employeeFilter').value;
 
     btn.disabled  = true;
     btn.innerHTML = '<div class="spinner"></div> Loading…';
@@ -592,7 +577,7 @@ function filterShifts() {
 
     const fd = new FormData();
     fd.append('action', 'filter');
-    if (empUsername) fd.append('employee_username', empUsername);
+    if (userId) fd.append('user_id', userId);
 
     postJSON(fd)
         .then(data => {
@@ -651,9 +636,7 @@ function openEdit(shiftId) {
             currentEditShift = s.shift_time.toLowerCase();
             document.getElementById('saveBtn').disabled = false;
         })
-        .catch(err => {
-            showEditError(err.message);
-        });
+        .catch(err => showEditError(err.message));
 }
 
 function closeEditModal() {
@@ -704,10 +687,10 @@ function saveEdit() {
 
 /* ══ DELETE ══ */
 function openDelete(shiftId, empName, shiftDate) {
-    document.getElementById('confirmShiftId').value  = shiftId;
+    document.getElementById('confirmShiftId').value    = shiftId;
     document.getElementById('confirmBody').textContent =
         `Remove the ${fmtDate(shiftDate)} shift for ${empName}? This cannot be undone.`;
-    document.getElementById('confirmOkBtn').disabled = false;
+    document.getElementById('confirmOkBtn').disabled   = false;
     document.getElementById('confirmModal').classList.add('open');
 }
 
@@ -742,7 +725,6 @@ function confirmDelete() {
         });
 }
 
-/* ── re-compute stats from current DOM ── */
 function refreshStats() {
     const rows = document.querySelectorAll('tbody tr[data-shift-id]');
     if (!rows.length) {
@@ -768,7 +750,6 @@ function refreshStats() {
     document.getElementById('statNight').textContent   = night;
 }
 
-/* ── close modals on backdrop click / Escape ── */
 document.getElementById('editModal').addEventListener('click', function(e) {
     if (e.target === this) closeEditModal();
 });

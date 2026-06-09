@@ -7,8 +7,13 @@ if (!isset($_SESSION['username']) || $_SESSION['role'] != 'Employee') {
 include 'db_connect.php';
 
 $username = $_SESSION['username'];
-$sql = "SELECT * FROM employee_profiles JOIN users ON users.id = employee_profiles.user_id WHERE users.username = '$username'";
-$result = $conn->query($sql);
+$sql = "SELECT ep.* FROM employee_profiles ep 
+        JOIN users u ON u.user_id = ep.user_id 
+        WHERE u.username = ?";
+$stmt = $conn->prepare($sql);
+$stmt->bind_param("s", $username);
+$stmt->execute();
+$result = $stmt->get_result();
 $profile = $result->fetch_assoc();
 ?>
 
@@ -61,7 +66,7 @@ $profile = $result->fetch_assoc();
             }
           }
         }
-      </script>
+    </script>
 </head>
 <body class="bg-background text-on-surface min-h-screen flex flex-col justify-between">
     <!-- TopNavBar -->
@@ -131,7 +136,7 @@ $profile = $result->fetch_assoc();
         </section>
     </main>
 
-    <!-- Footer Component -->
+    <!-- Footer -->
     <footer class="w-full bg-surface-container border-t border-outline-variant py-4 px-6 mt-12">
         <div class="flex justify-between items-center max-w-[1440px] mx-auto w-full">
             <span class="text-xs text-secondary">© 2026 He&amp;She Coffee. All rights reserved.</span>
@@ -139,5 +144,3 @@ $profile = $result->fetch_assoc();
     </footer>
 </body>
 </html>
-
-
