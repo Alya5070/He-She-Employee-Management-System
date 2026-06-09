@@ -16,7 +16,7 @@ if ($_SESSION['role'] == 'Manager') {
     $result = $conn->query($sql);
 } else {
     // Fetch only the current employee's profile (if employee)
-    $sql = "SELECT * FROM employee_profiles WHERE user_id = (SELECT id FROM users WHERE username = ?)";
+    $sql = "SELECT * FROM employee_profiles WHERE user_id = (SELECT user_id FROM users WHERE username = ?)";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("s", $username);
     $stmt->execute();
@@ -44,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $stmt->bind_param("ssssi", $full_name, $contact, $bank_account_number, $email, $employee_id);
     } else {
         // If employee, only update their own profile
-        $stmt = $conn->prepare("UPDATE employee_profiles SET full_name = ?, contact = ?, bank_account_number = ?, email = ? WHERE user_id = (SELECT id FROM users WHERE username = ?)");
+        $stmt = $conn->prepare("UPDATE employee_profiles SET full_name = ?, contact = ?, bank_account_number = ?, email = ? WHERE user_id = (SELECT user_id FROM users WHERE username = ?)");
         $stmt->bind_param("sssss", $full_name, $contact, $bank_account_number, $email, $username);
     }
 

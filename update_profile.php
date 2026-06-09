@@ -11,7 +11,7 @@ if (!isset($_SESSION['username'])) {
 $username = $_SESSION['username'];
 
 // Fetch current profile data
-$sql = "SELECT * FROM employee_profiles WHERE user_id = (SELECT id FROM users WHERE username = ?)";
+$sql = "SELECT * FROM employee_profiles WHERE user_id = (SELECT user_id FROM users WHERE username = ?)";
 $stmt = $conn->prepare($sql);
 $stmt->bind_param("s", $username);
 $stmt->execute();
@@ -35,13 +35,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         // Update existing profile
         $update_sql = "UPDATE employee_profiles 
                        SET full_name = ?, contact = ?, bank_account_number = ?, email = ? 
-                       WHERE user_id = (SELECT id FROM users WHERE username = ?)";
+                       WHERE user_id = (SELECT user_id FROM users WHERE username = ?)";
         $stmt = $conn->prepare($update_sql);
         $stmt->bind_param("sssss", $full_name, $contact, $bank_account_number, $email, $username);
     } else {
         // Insert new profile
         $insert_sql = "INSERT INTO employee_profiles (user_id, full_name, contact, bank_account_number, email) 
-                       VALUES ((SELECT id FROM users WHERE username = ?), ?, ?, ?, ?)";
+                       VALUES ((SELECT user_id FROM users WHERE username = ?), ?, ?, ?, ?)";
         $stmt = $conn->prepare($insert_sql);
         $stmt->bind_param("sssss", $username, $full_name, $contact, $bank_account_number, $email);
     }

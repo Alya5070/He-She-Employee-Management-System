@@ -25,20 +25,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Determine target month (fallback to current year-month if not searched)
 $target_month = !empty($month_filter) ? $month_filter : date('Y-m');
 
-// Fetch data for the report with the option to filter by month
+// Fetch data for the report with the option to filter by month (calculates shifts and salaries dynamically)
 $query = "
 SELECT 
-    u.id AS employee_id,
+    u.user_id AS employee_id,
     u.full_name AS employee_name,
     u.username AS employee_username,
     ep.contact AS contact,
     ep.bank_account_number AS bank_account_number,
     ep.email AS employee_email,
-    COALESCE(sal.total_shifts, 0) AS total_shifts,
-    COALESCE(sal.calculated_salary, 0) AS calculated_salary
+    COALESCE(sched.total_shifts, 0) AS total_shifts,
+    COALESCE(sched.total_shifts, 0) * 28 AS calculated_salary
 FROM users u
-LEFT JOIN salaries sal ON u.username = sal.employee_username AND sal.month = ?
-LEFT JOIN employee_profiles ep ON u.id = ep.user_id
+LEFT JOIN (
+    SELECT user_id, COUNT(*) AS total_shifts
+    FROM schedules
+    WHERE DATE_FORMAT(schedules_date, '%Y-%m') = ?
+    GROUP BY user_id
+) sched ON u.user_id = sched.user_id
+LEFT JOIN employee_profiles ep ON u.user_id = ep.user_id
 WHERE u.role = 'Employee'
 ORDER BY u.username;
 ";
