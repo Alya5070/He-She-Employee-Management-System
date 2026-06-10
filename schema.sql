@@ -7,7 +7,9 @@ CREATE TABLE IF NOT EXISTS `users` (
   `username` VARCHAR(50) UNIQUE NOT NULL,
   `password` VARCHAR(255) NOT NULL,
   `role` VARCHAR(20) NOT NULL DEFAULT 'Employee',
-  `full_name` VARCHAR(100) NOT NULL
+  `full_name` VARCHAR(100) NOT NULL,
+  `login_attempts` INT DEFAULT 0,
+  `lockout_until` DATETIME DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 2. Create employee_profiles table
