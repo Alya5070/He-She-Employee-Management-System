@@ -328,32 +328,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
 
                 foreach ($slots_list as $slot) {
-                    $candidates = [];
-                    foreach ($employees_list as $emp) {
-                        $uid = $emp['user_id'];
-                        $is_pref_available = isset($avail[$uid][$day_of_week][$slot]) ? $avail[$uid][$day_of_week][$slot] : 1;
-                        $on_leave = isset($leaves[$uid][$date]);
-                        $already_scheduled = ($daily_allocation[$uid] > 0);
+                    $target_coverage = 2; // target number of baristas per shift
+                    for ($c_idx = 0; $c_idx < $target_coverage; $c_idx++) {
+                        $candidates = [];
+                        foreach ($employees_list as $emp) {
+                            $uid = $emp['user_id'];
+                            $is_pref_available = isset($avail[$uid][$day_of_week][$slot]) ? $avail[$uid][$day_of_week][$slot] : 1;
+                            $on_leave = isset($leaves[$uid][$date]);
+                            $already_scheduled = ($daily_allocation[$uid] > 0);
 
-                        if ($is_pref_available === 1 && !$on_leave && !$already_scheduled) {
-                            $candidates[] = $uid;
+                            if ($is_pref_available === 1 && !$on_leave && !$already_scheduled) {
+                                $candidates[] = $uid;
+                            }
                         }
-                    }
 
-                    if (!empty($candidates)) {
-                        // Sort by workload (fewest shifts first) to balance allocation, shuffling to randomize tie-breakers
-                        shuffle($candidates);
-                        usort($candidates, function($a, $b) use ($workload) {
-                            return $workload[$a] - $workload[$b];
-                        });
+                        if (!empty($candidates)) {
+                            // Sort by workload (fewest shifts first) to balance allocation, shuffling to randomize tie-breakers
+                            shuffle($candidates);
+                            usort($candidates, function($a, $b) use ($workload) {
+                                return $workload[$a] - $workload[$b];
+                            });
 
-                        $selected_uid = $candidates[0];
+                            $selected_uid = $candidates[0];
 
-                        $ins_stmt->bind_param("iss", $selected_uid, $date, $slot);
-                        $ins_stmt->execute();
+                            $ins_stmt->bind_param("iss", $selected_uid, $date, $slot);
+                            $ins_stmt->execute();
 
-                        $workload[$selected_uid]++;
-                        $daily_allocation[$selected_uid]++;
+                            $workload[$selected_uid]++;
+                            $daily_allocation[$selected_uid]++;
+                        }
                     }
                 }
             }
