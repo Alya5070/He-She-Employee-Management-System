@@ -242,101 +242,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 </div>
             <?php endif; ?>
 
-            <?php if ($_SESSION['role'] == 'Employee' || isset($_GET['edit'])): ?>
-                <!-- For both Employee and Manager (if editing an employee): Display the profile editing form -->
-                <?php
-                if (isset($_GET['edit'])) {
-                    // If manager is editing an employee's profile, fetch the selected employee's profile
-                    $employee_id = intval($_GET['edit']);
-                    $stmt = $conn->prepare("SELECT * FROM employee_profiles WHERE id = ?");
-                    $stmt->bind_param("i", $employee_id);
-                    $stmt->execute();
-                    $result = $stmt->get_result();
-                    $profile = $result ? $result->fetch_assoc() : null;
-                    $stmt->close();
-                }
-                $shifts_count = 0;
-                if (isset($profile['user_id'])) {
-                    $stmt_s = $conn->prepare("SELECT COUNT(*) AS count FROM schedules WHERE user_id = ?");
-                    $stmt_s->bind_param("i", $profile['user_id']);
-                    $stmt_s->execute();
-                    $shifts_count = $stmt_s->get_result()->fetch_assoc()['count'];
-                    $stmt_s->close();
-                }
-                $hours_worked_computed = $shifts_count * 5;
-                ?>
-                
-                <div id="editProfileModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 transition-opacity duration-300">
-                    <div class="bg-white border border-outline-variant p-6 rounded-xl w-full max-w-[600px] shadow-2xl relative space-y-4 max-h-[90vh] overflow-y-auto">
-                        <!-- Close Button -->
-                        <a href="manage_employee_profile.php" class="absolute top-4 right-4 text-secondary hover:text-primary transition-colors">
-                            <span class="material-symbols-outlined">close</span>
-                        </a>
-
-                        <h3 class="font-bold text-lg text-on-surface"><?php echo isset($profile) ? 'Edit Profile Details' : 'Create Profile Details'; ?></h3>
-                        <form method="POST" class="space-y-4">
-                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
-                            <input type="hidden" name="employee_id" value="<?php echo isset($profile['id']) ? $profile['id'] : ''; ?>">
-                            
-                            <div class="space-y-1">
-                                <label class="block text-xs font-semibold text-secondary uppercase tracking-wider" for="full_name">FULL NAME</label>
-                                <input class="w-full bg-white border border-outline-variant px-4 py-2 focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-sm rounded-xl" type="text" id="full_name" name="full_name" value="<?php echo isset($profile['full_name']) ? htmlspecialchars($profile['full_name']) : ''; ?>" required placeholder="Full Name">
-                            </div>
-
-                            <div class="space-y-1">
-                                <label class="block text-xs font-semibold text-secondary uppercase tracking-wider" for="contact">CONTACT INFO</label>
-                                <input class="w-full bg-white border border-outline-variant px-4 py-2 focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-sm rounded-xl" type="text" id="contact" name="contact" value="<?php echo isset($profile['contact']) ? htmlspecialchars($profile['contact']) : ''; ?>" placeholder="Contact Info">
-                            </div>
-
-                            <div class="space-y-1">
-                                <label class="block text-xs font-semibold text-secondary uppercase tracking-wider" for="bank_account_number">BANK ACCOUNT NUMBER</label>
-                                <input class="w-full bg-white border border-outline-variant px-4 py-2 focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-sm rounded-xl" type="text" id="bank_account_number" name="bank_account_number" value="<?php echo isset($profile['bank_account_number']) ? htmlspecialchars($profile['bank_account_number']) : ''; ?>" placeholder="Bank Account Number">
-                            </div>
-
-                            <div class="space-y-1">
-                                <label class="block text-xs font-semibold text-secondary uppercase tracking-wider" for="email">EMAIL</label>
-                                <input class="w-full bg-white border border-outline-variant px-4 py-2 focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-sm rounded-xl" type="email" id="email" name="email" value="<?php echo isset($profile['email']) ? htmlspecialchars($profile['email']) : ''; ?>" placeholder="Email">
-                            </div>
-
-                            <div class="space-y-1">
-                                <label class="block text-xs font-semibold text-secondary uppercase tracking-wider">HOURS WORKED (Computed)</label>
-                                <input class="w-full bg-neutral-100 border border-outline-variant px-4 py-2 text-sm rounded-xl cursor-not-allowed text-secondary" type="text" readonly value="<?php echo $hours_worked_computed; ?> hours (<?php echo $shifts_count; ?> shifts scheduled)">
-                                <span class="text-[10px] text-secondary">Automatically computed from scheduled rosters (5 hours/shift).</span>
-                            </div>
-
-                            <?php if ($_SESSION['role'] == 'Manager'): ?>
-                            <div class="space-y-1">
-                                <label class="block text-xs font-semibold text-secondary uppercase tracking-wider" for="shift_rate">SHIFT RATE (RM)</label>
-                                <input class="w-full bg-white border border-outline-variant px-4 py-2 focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-sm rounded-xl" type="number" step="0.01" id="shift_rate" name="shift_rate" value="<?php echo isset($profile['shift_rate']) ? htmlspecialchars($profile['shift_rate']) : '28.00'; ?>" required placeholder="28.00">
-                            </div>
-                            <?php endif; ?>
-
-                            <div class="flex gap-4 pt-2">
-                                <button type="submit" class="flex-1 bg-primary text-white font-semibold h-11 flex items-center justify-center hover:bg-neutral-800 transition-colors rounded-xl">
-                                    Update Profile
-                                </button>
-                                <a href="manage_employee_profile.php" class="flex-1 border border-outline-variant text-on-surface font-semibold h-11 flex items-center justify-center hover:bg-surface-container-low transition-colors rounded-xl text-center flex items-center justify-center">
-                                    Cancel
-                                </a>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-
-                <script>
-                    document.addEventListener('keydown', function(event) {
-                        if (event.key === 'Escape') {
-                            window.location.href = 'manage_employee_profile.php';
-                        }
-                    });
-                    document.getElementById('editProfileModal').addEventListener('click', function(event) {
-                        if (event.target === this) {
-                            window.location.href = 'manage_employee_profile.php';
-                        }
-                    });
-                </script>
-            <?php endif; ?>
-            
             <div class="pt-4 border-t border-outline-variant">
                 <a href="user.php" class="inline-flex items-center justify-center border border-outline-variant text-on-surface font-semibold px-4 h-11 hover:bg-surface-container-low transition-colors rounded-xl">
                     Back to Dashboard
@@ -351,6 +256,101 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             <span class="text-xs text-secondary">© 2026 He&amp;She Coffee. All rights reserved.</span>
         </div>
     </footer>
+
+    <?php if ($_SESSION['role'] == 'Employee' || isset($_GET['edit'])): ?>
+        <!-- For both Employee and Manager (if editing an employee): Display the profile editing form -->
+        <?php
+        if (isset($_GET['edit'])) {
+            // If manager is editing an employee's profile, fetch the selected employee's profile
+            $employee_id = intval($_GET['edit']);
+            $stmt = $conn->prepare("SELECT * FROM employee_profiles WHERE id = ?");
+            $stmt->bind_param("i", $employee_id);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $profile = $result ? $result->fetch_assoc() : null;
+            $stmt->close();
+        }
+        $shifts_count = 0;
+        if (isset($profile['user_id'])) {
+            $stmt_s = $conn->prepare("SELECT COUNT(*) AS count FROM schedules WHERE user_id = ?");
+            $stmt_s->bind_param("i", $profile['user_id']);
+            $stmt_s->execute();
+            $shifts_count = $stmt_s->get_result()->fetch_assoc()['count'];
+            $stmt_s->close();
+        }
+        $hours_worked_computed = $shifts_count * 5;
+        ?>
+        
+        <div id="editProfileModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 transition-opacity duration-300">
+            <div class="bg-white border border-outline-variant p-6 rounded-xl w-full max-w-[600px] shadow-2xl relative space-y-4 max-h-[90vh] overflow-y-auto">
+                <!-- Close Button -->
+                <a href="manage_employee_profile.php" class="absolute top-4 right-4 text-secondary hover:text-primary transition-colors">
+                    <span class="material-symbols-outlined">close</span>
+                </a>
+
+                <h3 class="font-bold text-lg text-on-surface"><?php echo isset($profile) ? 'Edit Profile Details' : 'Create Profile Details'; ?></h3>
+                <form method="POST" class="space-y-4">
+                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
+                    <input type="hidden" name="employee_id" value="<?php echo isset($profile['id']) ? $profile['id'] : ''; ?>">
+                    
+                    <div class="space-y-1">
+                        <label class="block text-xs font-semibold text-secondary uppercase tracking-wider" for="full_name">FULL NAME</label>
+                        <input class="w-full bg-white border border-outline-variant px-4 py-2 focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-sm rounded-xl" type="text" id="full_name" name="full_name" value="<?php echo isset($profile['full_name']) ? htmlspecialchars($profile['full_name']) : ''; ?>" required placeholder="Full Name">
+                    </div>
+
+                    <div class="space-y-1">
+                        <label class="block text-xs font-semibold text-secondary uppercase tracking-wider" for="contact">CONTACT INFO</label>
+                        <input class="w-full bg-white border border-outline-variant px-4 py-2 focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-sm rounded-xl" type="text" id="contact" name="contact" value="<?php echo isset($profile['contact']) ? htmlspecialchars($profile['contact']) : ''; ?>" placeholder="Contact Info">
+                    </div>
+
+                    <div class="space-y-1">
+                        <label class="block text-xs font-semibold text-secondary uppercase tracking-wider" for="bank_account_number">BANK ACCOUNT NUMBER</label>
+                        <input class="w-full bg-white border border-outline-variant px-4 py-2 focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-sm rounded-xl" type="text" id="bank_account_number" name="bank_account_number" value="<?php echo isset($profile['bank_account_number']) ? htmlspecialchars($profile['bank_account_number']) : ''; ?>" placeholder="Bank Account Number">
+                    </div>
+
+                    <div class="space-y-1">
+                        <label class="block text-xs font-semibold text-secondary uppercase tracking-wider" for="email">EMAIL</label>
+                        <input class="w-full bg-white border border-outline-variant px-4 py-2 focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-sm rounded-xl" type="email" id="email" name="email" value="<?php echo isset($profile['email']) ? htmlspecialchars($profile['email']) : ''; ?>" placeholder="Email">
+                    </div>
+
+                    <div class="space-y-1">
+                        <label class="block text-xs font-semibold text-secondary uppercase tracking-wider">HOURS WORKED (Computed)</label>
+                        <input class="w-full bg-neutral-100 border border-outline-variant px-4 py-2 text-sm rounded-xl cursor-not-allowed text-secondary" type="text" readonly value="<?php echo $hours_worked_computed; ?> hours (<?php echo $shifts_count; ?> shifts scheduled)">
+                        <span class="text-[10px] text-secondary">Automatically computed from scheduled rosters (5 hours/shift).</span>
+                    </div>
+
+                    <?php if ($_SESSION['role'] == 'Manager'): ?>
+                    <div class="space-y-1">
+                        <label class="block text-xs font-semibold text-secondary uppercase tracking-wider" for="shift_rate">SHIFT RATE (RM)</label>
+                        <input class="w-full bg-white border border-outline-variant px-4 py-2 focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-sm rounded-xl" type="number" step="0.01" id="shift_rate" name="shift_rate" value="<?php echo isset($profile['shift_rate']) ? htmlspecialchars($profile['shift_rate']) : '28.00'; ?>" required placeholder="28.00">
+                    </div>
+                    <?php endif; ?>
+
+                    <div class="flex gap-4 pt-2">
+                        <button type="submit" class="flex-1 bg-primary text-white font-semibold h-11 flex items-center justify-center hover:bg-neutral-800 transition-colors rounded-xl">
+                            Update Profile
+                        </button>
+                        <a href="manage_employee_profile.php" class="flex-1 border border-outline-variant text-on-surface font-semibold h-11 flex items-center justify-center hover:bg-surface-container-low transition-colors rounded-xl text-center flex items-center justify-center">
+                            Cancel
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <script>
+            document.addEventListener('keydown', function(event) {
+                if (event.key === 'Escape') {
+                    window.location.href = 'manage_employee_profile.php';
+                }
+            });
+            document.getElementById('editProfileModal').addEventListener('click', function(event) {
+                if (event.target === this) {
+                    window.location.href = 'manage_employee_profile.php';
+                }
+            });
+        </script>
+    <?php endif; ?>
 </body>
 </html>
 
