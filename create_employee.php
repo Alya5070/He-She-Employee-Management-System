@@ -16,32 +16,43 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 
     $username = $_POST['username'];
-    $password = password_hash($_POST['password'], PASSWORD_DEFAULT);
+    $raw_password = $_POST['password'];
     $full_name = $_POST['full_name'];
     $email = $_POST['email'];
     $contact = $_POST['contact'];
     $bank_account_number = $_POST['bank_account_number'];
 
-    // Begin Transaction to ensure both database tables get populated
-    $conn->begin_transaction();
+    // Password strength validation
+    if (strlen($raw_password) < 8 || 
+        !preg_match('/[A-Z]/', $raw_password) || 
+        !preg_match('/[a-z]/', $raw_password) || 
+        !preg_match('/[0-9]/', $raw_password) || 
+        !preg_match('/[^A-Za-z0-9]/', $raw_password)) {
+        $error_message = "Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character.";
+    } else {
+        $password = password_hash($raw_password, PASSWORD_DEFAULT);
 
-    try {
-        // 1. Insert into users
-        $stmt = $conn->prepare("INSERT INTO users (username, password, role, full_name) VALUES (?, ?, 'Employee', ?)");
-        $stmt->bind_param("sss", $username, $password, $full_name);
-        $stmt->execute();
-        $user_id = $conn->insert_id;
+        // Begin Transaction to ensure both database tables get populated
+        $conn->begin_transaction();
 
-        // 2. Insert into employee_profiles
-        $stmt2 = $conn->prepare("INSERT INTO employee_profiles (user_id, full_name, contact, bank_account_number, email, hours_worked) VALUES (?, ?, ?, ?, ?, 0)");
-        $stmt2->bind_param("issss", $user_id, $full_name, $contact, $bank_account_number, $email);
-        $stmt2->execute();
+        try {
+            // 1. Insert into users
+            $stmt = $conn->prepare("INSERT INTO users (username, password, role, full_name) VALUES (?, ?, 'Employee', ?)");
+            $stmt->bind_param("sss", $username, $password, $full_name);
+            $stmt->execute();
+            $user_id = $conn->insert_id;
 
-        $conn->commit();
-        $success_message = "Employee account created successfully!";
-    } catch (Exception $e) {
-        $conn->rollback();
-        $error_message = "Error creating account: " . $e->getMessage();
+            // 2. Insert into employee_profiles
+            $stmt2 = $conn->prepare("INSERT INTO employee_profiles (user_id, full_name, contact, bank_account_number, email, hours_worked) VALUES (?, ?, ?, ?, ?, 0)");
+            $stmt2->bind_param("issss", $user_id, $full_name, $contact, $bank_account_number, $email);
+            $stmt2->execute();
+
+            $conn->commit();
+            $success_message = "Employee account created successfully!";
+        } catch (Exception $e) {
+            $conn->rollback();
+            $error_message = "Error creating account: " . $e->getMessage();
+        }
     }
 }
 ?>
@@ -152,6 +163,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     <div class="space-y-1">
                         <label class="block text-xs font-semibold text-secondary uppercase tracking-wider" for="password">PASSWORD</label>
                         <input class="w-full bg-white border border-outline-variant px-4 py-2.5 focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-sm rounded-xl" type="password" id="password" name="password" required placeholder="Temporary password">
+                        <p class="text-xs text-secondary mt-1">Must be at least 8 characters long, and include an uppercase letter, a lowercase letter, a number, and a special character.</p>
                     </div>
                 </div>
 

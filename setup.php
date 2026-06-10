@@ -15,23 +15,34 @@ $success_message = '';
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $username = $_POST['username'];
-    $password = password_hash($_POST['password'], PASSWORD_DEFAULT);
+    $raw_password = $_POST['password'];
     $full_name = $_POST['full_name'];
 
-    // Insert initial manager
-    $sql = "INSERT INTO users (username, password, role, full_name) VALUES (?, ?, 'Manager', ?)";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("sss", $username, $password, $full_name);
-
-    if ($stmt->execute()) {
-        $success_message = "Initial Manager account created successfully! Redirecting to login...";
-        echo "<script>
-            setTimeout(function() {
-                window.location.href = 'login.php';
-            }, 2000);
-        </script>";
+    // Password strength validation
+    if (strlen($raw_password) < 8 || 
+        !preg_match('/[A-Z]/', $raw_password) || 
+        !preg_match('/[a-z]/', $raw_password) || 
+        !preg_match('/[0-9]/', $raw_password) || 
+        !preg_match('/[^A-Za-z0-9]/', $raw_password)) {
+        $error_message = "Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character.";
     } else {
-        $error_message = "Error creating account: " . $conn->error;
+        $password = password_hash($raw_password, PASSWORD_DEFAULT);
+
+        // Insert initial manager
+        $sql = "INSERT INTO users (username, password, role, full_name) VALUES (?, ?, 'Manager', ?)";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("sss", $username, $password, $full_name);
+
+        if ($stmt->execute()) {
+            $success_message = "Initial Manager account created successfully! Redirecting to login...";
+            echo "<script>
+                setTimeout(function() {
+                    window.location.href = 'login.php';
+                }, 2000);
+            </script>";
+        } else {
+            $error_message = "Error creating account: " . $conn->error;
+        }
     }
 }
 ?>
@@ -129,6 +140,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 <div class="space-y-1">
                     <label class="text-xs font-semibold text-on-surface-variant block uppercase tracking-wider" for="password">PASSWORD</label>
                     <input class="w-full h-11 px-4 border border-outline-variant bg-surface-container-lowest text-sm text-on-surface focus:ring-1 focus:ring-primary focus:border-primary outline-none transition-all duration-200 rounded-xl" id="password" name="password" placeholder="••••••••" type="password" required/>
+                    <p class="text-xs text-secondary mt-1">Must be at least 8 characters long, and include an uppercase letter, a lowercase letter, a number, and a special character.</p>
                 </div>
                 
                 <!-- Primary Action -->
