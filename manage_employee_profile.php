@@ -9,6 +9,38 @@ if (!isset($_SESSION['username']) || ($_SESSION['role'] != 'Manager' && $_SESSIO
 }
 
 $username = $_SESSION['username'];
+$error_message = '';
+$success_message = '';
+
+// Handle delete employee request
+if (isset($_GET['delete']) && $_SESSION['role'] == 'Manager') {
+    // CSRF check
+    if (!isset($_GET['csrf_token']) || $_GET['csrf_token'] !== $_SESSION['csrf_token']) {
+        die("CSRF token validation failed.");
+    }
+    
+    $delete_user_id = intval($_GET['delete']);
+    
+    // Fetch user details to verify role
+    $stmt = $conn->prepare("SELECT role, username FROM users WHERE user_id = ?");
+    $stmt->bind_param("i", $delete_user_id);
+    $stmt->execute();
+    $user_res = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    
+    if ($user_res && $user_res['role'] == 'Employee') {
+        $stmt = $conn->prepare("DELETE FROM users WHERE user_id = ?");
+        $stmt->bind_param("i", $delete_user_id);
+        if ($stmt->execute()) {
+            $success_message = "Employee account '" . htmlspecialchars($user_res['username']) . "' successfully removed.";
+        } else {
+            $error_message = "Error removing employee: " . $stmt->error;
+        }
+        $stmt->close();
+    } else {
+        $error_message = "Invalid employee identifier or cannot delete managers.";
+    }
+}
 
 // Fetch all employee profiles (if manager)
 if ($_SESSION['role'] == 'Manager') {
@@ -154,6 +186,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     </a>
                 <?php endif; ?>
             </div>
+
+            <?php if (!empty($error_message)): ?>
+                <div class="bg-red-50 border border-red-200 p-4 text-red-800 text-sm rounded-xl">
+                    <?php echo htmlspecialchars($error_message); ?>
+                </div>
+            <?php endif; ?>
+
+            <?php if (!empty($success_message)): ?>
+                <div class="bg-green-50 border border-green-200 p-4 text-green-800 text-sm rounded-xl">
+                    <?php echo htmlspecialchars($success_message); ?>
+                </div>
+            <?php endif; ?>
             
             <?php if ($_SESSION['role'] == 'Manager'): ?>
                 <!-- For Manager: Display all employee profiles with an "Edit" link -->
@@ -182,14 +226,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                         <td class="py-3 px-4"><?php echo htmlspecialchars($row['email'] ? $row['email'] : 'N/A'); ?></td>
                                         <td class="py-3 px-4 font-mono"><?php echo number_format($row['hours_worked'], 1); ?> hrs</td>
                                         <td class="py-3 px-4 font-mono">RM<?php echo number_format($row['shift_rate'], 2); ?></td>
-                                        <td class="py-3 px-4">
+                                        <td class="py-3 px-4 flex gap-2">
                                             <a href="manage_employee_profile.php?edit=<?php echo $row['id']; ?>" class="text-xs bg-primary-container text-white px-2.5 py-1 hover:bg-neutral-800 transition-colors rounded-xl">Edit</a>
+                                            <a href="manage_employee_profile.php?delete=<?php echo $row['user_id']; ?>&csrf_token=<?php echo $_SESSION['csrf_token']; ?>" onclick="return confirm('Are you sure you want to delete this employee? This will permanently delete their account, profile, schedules, and payroll records.');" class="text-xs bg-red-600 text-white px-2.5 py-1 hover:bg-red-700 transition-colors rounded-xl">Delete</a>
                                         </td>
                                     </tr>
                                 <?php endwhile; ?>
                             <?php else: ?>
                                 <tr>
-                                    <td colspan="6" class="py-6 text-center text-sm text-secondary">No employee profiles found.</td>
+                                    <td colspan="8" class="py-6 text-center text-sm text-secondary">No employee profiles found.</td>
                                 </tr>
                             <?php endif; ?>
                         </tbody>
@@ -221,7 +266,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $hours_worked_computed = $shifts_count * 5;
                 ?>
                 
-                <div id="editProfileModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-opacity duration-300">
+                <div id="editProfileModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 transition-opacity duration-300">
                     <div class="bg-white border border-outline-variant p-6 rounded-xl w-full max-w-[600px] shadow-2xl relative space-y-4 max-h-[90vh] overflow-y-auto">
                         <!-- Close Button -->
                         <a href="manage_employee_profile.php" class="absolute top-4 right-4 text-secondary hover:text-primary transition-colors">
