@@ -70,12 +70,3 @@ CREATE TABLE IF NOT EXISTS `availability_preferences` (
   FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 8. Create time_clock table
-CREATE TABLE IF NOT EXISTS `time_clock` (
-  `id` INT AUTO_INCREMENT PRIMARY KEY,
-  `user_id` INT NOT NULL,
-  `clock_in` DATETIME NOT NULL,
-  `clock_out` DATETIME DEFAULT NULL,
-  `hours_worked` DECIMAL(10,2) DEFAULT 0.00,
-  FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
