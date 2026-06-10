@@ -162,7 +162,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
                     <div class="space-y-1">
                         <label class="block text-xs font-semibold text-secondary uppercase tracking-wider" for="password">PASSWORD</label>
-                        <input class="w-full bg-white border border-outline-variant px-4 py-2.5 focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-sm rounded-xl" type="password" id="password" name="password" required placeholder="Temporary password">
+                        <input class="w-full bg-white border border-outline-variant px-4 py-2.5 focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all text-sm rounded-xl" type="password" id="password" name="password" required placeholder="••••••••">
                         <p class="text-xs text-secondary mt-1">Must be at least 8 characters long, and include an uppercase letter, a lowercase letter, a number, and a special character.</p>
                     </div>
                 </div>
