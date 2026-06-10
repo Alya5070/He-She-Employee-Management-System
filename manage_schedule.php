@@ -237,6 +237,141 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
         exit;
     }
+
+    if ($_POST['action'] === 'auto_schedule') {
+        $target_week_start = $_POST['week_start'];
+        $current_monday = new DateTime($target_week_start);
+        if ($current_monday->format('N') != 1) {
+            $current_monday->modify('this monday');
+        }
+        
+        $current_week_dates = [];
+        $temp = clone $current_monday;
+        for ($i = 0; $i < 7; $i++) {
+            $current_week_dates[] = $temp->format('Y-m-d');
+            $temp->modify('+1 day');
+        }
+
+        // Begin transaction to guarantee consistent changes
+        $conn->begin_transaction();
+        try {
+            // 1. Clear all existing schedules for this week
+            $placeholders = implode(',', array_fill(0, 7, '?'));
+            $types = str_repeat('s', 7);
+            $del_stmt = $conn->prepare("DELETE FROM schedules WHERE schedules_date IN ($placeholders)");
+            $del_stmt->bind_param($types, ...$current_week_dates);
+            $del_stmt->execute();
+            $del_stmt->close();
+
+            // 2. Fetch all active employees
+            $emp_res = $conn->query("SELECT user_id, full_name FROM users WHERE role = 'Employee'");
+            $employees_list = $emp_res->fetch_all(MYSQLI_ASSOC);
+
+            if (empty($employees_list)) {
+                echo json_encode(['success' => false, 'message' => 'No active employees found to schedule.']);
+                exit;
+            }
+
+            // 3. Load availability preferences
+            // Default to available (1) for everyone
+            $avail = [];
+            foreach ($employees_list as $emp) {
+                $uid = $emp['user_id'];
+                for ($d = 1; $d <= 7; $d++) {
+                    foreach (['morning', 'evening', 'night'] as $s) {
+                        $avail[$uid][$d][$s] = 1;
+                    }
+                }
+            }
+            
+            // Load custom overrides from database
+            $pref_res = $conn->query("SELECT user_id, day_of_week, time_slot, is_available FROM availability_preferences");
+            while ($p_row = $pref_res->fetch_assoc()) {
+                $uid = $p_row['user_id'];
+                $d = $p_row['day_of_week'];
+                $s = strtolower($p_row['time_slot']);
+                if (isset($avail[$uid])) {
+                    $avail[$uid][$d][$s] = intval($p_row['is_available']);
+                }
+            }
+            $pref_res->close();
+
+            // 4. Load approved leave requests for the week
+            $leaves = [];
+            $leave_res = $conn->prepare("SELECT user_id, leave_date FROM leave_requests WHERE status = 'Approved' AND leave_date IN ($placeholders)");
+            $leave_res->bind_param($types, ...$current_week_dates);
+            $leave_res->execute();
+            $l_rows = $leave_res->get_result()->fetch_all(MYSQLI_ASSOC);
+            $leave_res->close();
+            
+            foreach ($l_rows as $lr) {
+                $leaves[$lr['user_id']][$lr['leave_date']] = true;
+            }
+
+            // Track weekly workload (shift counts) for even distribution
+            $workload = [];
+            foreach ($employees_list as $emp) {
+                $workload[$emp['user_id']] = 0;
+            }
+
+            $slots_list = ['morning', 'evening', 'night'];
+            $ins_stmt = $conn->prepare("INSERT INTO schedules (user_id, schedules_date, schedules_time) VALUES (?, ?, ?)");
+
+            // Populate shifts day-by-day
+            foreach ($current_week_dates as $date_idx => $date) {
+                $day_of_week = $date_idx + 1; // 1=Monday ... 7=Sunday
+                
+                // Track daily shifts to prevent double booking on the same day
+                $daily_allocation = [];
+                foreach ($employees_list as $emp) {
+                    $daily_allocation[$emp['user_id']] = 0;
+                }
+
+                foreach ($slots_list as $slot) {
+                    $candidates = [];
+                    foreach ($employees_list as $emp) {
+                        $uid = $emp['user_id'];
+                        $is_pref_available = isset($avail[$uid][$day_of_week][$slot]) ? $avail[$uid][$day_of_week][$slot] : 1;
+                        $on_leave = isset($leaves[$uid][$date]);
+                        $already_scheduled = ($daily_allocation[$uid] > 0);
+
+                        if ($is_pref_available === 1 && !$on_leave && !$already_scheduled) {
+                            $candidates[] = $uid;
+                        }
+                    }
+
+                    if (!empty($candidates)) {
+                        // Sort by workload (fewest shifts first) to balance allocation, shuffling to randomize tie-breakers
+                        shuffle($candidates);
+                        usort($candidates, function($a, $b) use ($workload) {
+                            return $workload[$a] - $workload[$b];
+                        });
+
+                        $selected_uid = $candidates[0];
+
+                        $ins_stmt->bind_param("iss", $selected_uid, $date, $slot);
+                        $ins_stmt->execute();
+
+                        $workload[$selected_uid]++;
+                        $daily_allocation[$selected_uid]++;
+                    }
+                }
+            }
+            $ins_stmt->close();
+            $conn->commit();
+
+            // Update hours worked in profiles
+            foreach ($employees_list as $emp) {
+                recalculateEmployeeHours($conn, $emp['user_id']);
+            }
+
+            echo json_encode(['success' => true]);
+        } catch (Exception $e) {
+            $conn->rollback();
+            echo json_encode(['success' => false, 'message' => 'Auto-scheduling failed: ' . $e->getMessage()]);
+        }
+        exit;
+    }
 }
 
 // Fetch all employees for dropdown options
@@ -491,6 +626,9 @@ foreach ($employees as $emp) {
                         <?php endforeach; ?>
                     </select>
                 </div>
+                <button onclick="autoSchedule()" class="h-10 px-2.5 bg-primary text-white hover:bg-neutral-800 transition-colors rounded-xl font-semibold flex items-center gap-1 text-xs whitespace-nowrap" title="Auto-schedule shifts for this week">
+                    <span class="material-symbols-outlined text-base text-white">auto_awesome</span> Auto-Schedule
+                </button>
                 <button onclick="copyPreviousWeek()" class="h-10 px-2.5 border border-outline-variant hover:bg-surface-container-low transition-colors rounded-xl font-semibold flex items-center gap-1 text-xs whitespace-nowrap" title="Copy last week's shifts to this week">
                     <span class="material-symbols-outlined text-base">content_copy</span> Copy Last Week
                 </button>
@@ -756,6 +894,32 @@ foreach ($employees as $emp) {
 
     <script>
     const csrfToken = '<?php echo $_SESSION['csrf_token']; ?>';
+
+    function autoSchedule() {
+        if (!confirm('⚠️ This will clear this week\'s current schedule and auto-generate new shifts based on employee availability. Proceed?')) {
+            return;
+        }
+        const fd = new FormData();
+        fd.append('action', 'auto_schedule');
+        fd.append('week_start', '<?php echo $week_start; ?>');
+        fd.append('csrf_token', csrfToken);
+
+        fetch('manage_schedule.php', {
+            method: 'POST',
+            body: fd
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('Error: ' + data.message);
+            }
+        })
+        .catch(err => {
+            alert('Connection error. Please try again.');
+        });
+    }
 
     function copyPreviousWeek() {
         if (!confirm('Are you sure you want to copy the entire schedule from the previous week? This will not overwrite existing schedules.')) {

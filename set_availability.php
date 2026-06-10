@@ -26,25 +26,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         die("CSRF token validation failed.");
     }
 
-    // Delete all existing preferences for this user
-    $del = $conn->prepare("DELETE FROM availability_preferences WHERE user_id = ?");
-    $del->bind_param("i", $user_id);
-    $del->execute();
-    $del->close();
+    // Validate no conflicts with future scheduled shifts
+    $conflict_found = false;
+    $conflict_msg = "";
+    
+    $conflict_stmt = $conn->prepare("
+        SELECT DATE_FORMAT(schedules_date, '%W (%d %M %Y)') AS formatted_date
+        FROM schedules
+        WHERE user_id = ?
+          AND schedules_date >= CURDATE()
+          AND WEEKDAY(schedules_date) + 1 = ?
+          AND LOWER(schedules_time) = LOWER(?)
+        LIMIT 1
+    ");
 
-    // Insert checked slots (unchecked = unavailable)
-    $ins = $conn->prepare("INSERT INTO availability_preferences (user_id, day_of_week, time_slot, is_available) VALUES (?, ?, ?, ?)");
     for ($day = 1; $day <= 7; $day++) {
         foreach ($slots as $slot) {
             $is_available = isset($_POST["avail_{$day}_{$slot}"]) ? 1 : 0;
-            $ins->bind_param("iisi", $user_id, $day, $slot, $is_available);
-            $ins->execute();
+            if ($is_available === 0) {
+                $conflict_stmt->bind_param("iis", $user_id, $day, $slot);
+                $conflict_stmt->execute();
+                $conflict_res = $conflict_stmt->get_result()->fetch_assoc();
+                if ($conflict_res) {
+                    $conflict_found = true;
+                    $conflict_msg = "You cannot mark " . ucfirst($slot) . " on " . $days[$day - 1] . " as unavailable because you are already scheduled to work on " . $conflict_res['formatted_date'] . ". Please submit a leave request instead.";
+                    break 2;
+                }
+            }
         }
     }
-    $ins->close();
+    $conflict_stmt->close();
 
-    $message = "Availability preferences saved.";
-    $message_type = "success";
+    if ($conflict_found) {
+        $message = $conflict_msg;
+        $message_type = "error";
+    } else {
+        // Delete all existing preferences for this user
+        $del = $conn->prepare("DELETE FROM availability_preferences WHERE user_id = ?");
+        $del->bind_param("i", $user_id);
+        $del->execute();
+        $del->close();
+
+        // Insert checked slots (unchecked = unavailable)
+        $ins = $conn->prepare("INSERT INTO availability_preferences (user_id, day_of_week, time_slot, is_available) VALUES (?, ?, ?, ?)");
+        for ($day = 1; $day <= 7; $day++) {
+            foreach ($slots as $slot) {
+                $is_available = isset($_POST["avail_{$day}_{$slot}"]) ? 1 : 0;
+                $ins->bind_param("iisi", $user_id, $day, $slot, $is_available);
+                $ins->execute();
+            }
+        }
+        $ins->close();
+
+        $message = "Availability preferences saved.";
+        $message_type = "success";
+    }
 }
 
 // Load current prefs into a keyed array [day][slot] = is_available
